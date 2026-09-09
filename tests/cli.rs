@@ -150,3 +150,73 @@ fn exception_growth_and_missing_scope_fail() {
         "cli.invalid"
     );
 }
+
+#[test]
+fn vue_html_comments_preserve_strings_and_line_numbers() {
+    let d = fixture();
+    let config = d.path().join(".despec.toml");
+    let text = fs::read_to_string(&config)
+        .unwrap()
+        .replace("source.scss", "source.vue");
+    fs::write(config, text).unwrap();
+    fs::write(
+        d.path().join("source.vue"),
+        concat!(
+            "<template>\n",
+            "<!-- issue/#1026:\n",
+            "  ignore #abcdef and 'quotes'\n",
+            "-->\n",
+            "<div style=\"color: #123456\" />\n",
+            "</template>\n",
+            "<script>\n",
+            "const quoted = \"<!-- #234567 -->\";\n",
+            "const template = `<!-- #345678 -->`;\n",
+            "</script>\n",
+            "<style>\n",
+            "#abcdef { color: var(--ds-x) }\n",
+            "a { color: #456789; }\n",
+            "</style>\n",
+        ),
+    )
+    .unwrap();
+    assert!(run(d.path(), &["generate"]).status.success());
+    let output = run(d.path(), &["check", "--json"]);
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let diagnostics = json["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 4, "{json}");
+    assert_eq!(
+        diagnostics
+            .iter()
+            .map(|d| d["line"].as_u64().unwrap())
+            .collect::<Vec<_>>(),
+        vec![5, 8, 9, 13]
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .all(|d| d["rule_id"] == "source.color-literal")
+    );
+}
+
+#[test]
+fn standalone_css_id_selector_is_not_a_color() {
+    let d = fixture();
+    let config = d.path().join(".despec.toml");
+    fs::write(
+        &config,
+        fs::read_to_string(&config)
+            .unwrap()
+            .replace("source.scss", "source.css"),
+    )
+    .unwrap();
+    fs::write(
+        d.path().join("source.css"),
+        "#abcdef { color: var(--ds-x) }\na {color: #abcdef;}\n",
+    )
+    .unwrap();
+    assert!(run(d.path(), &["generate"]).status.success());
+    let output = run(d.path(), &["check", "--json"]);
+    let json: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["diagnostics"].as_array().unwrap().len(), 1);
+    assert_eq!(json["diagnostics"][0]["line"], 2);
+}

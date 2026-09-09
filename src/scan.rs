@@ -109,6 +109,16 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
         let text = strip_comments(&text, p.extension().is_some_and(|e| e != "css"));
         for (index, line) in text.lines().enumerate() {
             for m in re.find_iter(line) {
+                // A standalone ID selector is unambiguous; complex selectors still
+                // need a language parser and are documented as a lexical limitation.
+                if p.extension()
+                    .is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "vue")))
+                    && m.as_str().starts_with('#')
+                    && line[..m.start()].trim().is_empty()
+                    && line[m.end()..].trim_start().starts_with('{')
+                {
+                    continue;
+                }
                 let mut suppressed = false;
                 for (i, e) in c.exceptions.iter().enumerate() {
                     if e.path == p.to_string_lossy()
@@ -160,6 +170,7 @@ fn strip_comments(text: &str, slash_comments: bool) -> String {
     let mut chars = text.chars().peekable();
     let mut quote = None;
     let mut block = false;
+    let mut html = false;
     let mut line = false;
     while let Some(c) = chars.next() {
         if line {
@@ -169,6 +180,17 @@ fn strip_comments(text: &str, slash_comments: bool) -> String {
             } else {
                 out.push(' ')
             };
+            continue;
+        }
+        if html {
+            if c == '-' && chars.clone().take(2).eq("->".chars()) {
+                chars.next();
+                chars.next();
+                out.push_str("   ");
+                html = false;
+            } else {
+                out.push(if c == '\n' { '\n' } else { ' ' });
+            }
             continue;
         }
         if block {
@@ -192,9 +214,15 @@ fn strip_comments(text: &str, slash_comments: bool) -> String {
             };
             continue;
         }
-        if c == '"' || c == '\'' {
+        if c == '"' || c == '\'' || c == '`' {
             quote = Some(c);
             out.push(c)
+        } else if c == '<' && chars.clone().take(3).eq("!--".chars()) {
+            for _ in 0..3 {
+                chars.next();
+            }
+            html = true;
+            out.push_str("    ");
         } else if c == '/' && chars.peek() == Some(&'*') {
             chars.next();
             block = true;

@@ -74,7 +74,9 @@ for invalid CLI syntax. Rule IDs are `config.invalid`, `token.invalid`,
 
 Source policies are deliberately lexical, not an AST analyzer. They detect
 hex colors, numeric rgb/rgba/hsl/hsla functions, and Dart Color(0xAARRGGBB).
-Comments are ignored; quoted strings are scanned. Numeric color expressions
+C-style, line, and HTML comments are ignored; quoted strings are scanned.
+Standalone CSS ID selectors such as `#abcdef {` are ignored; complex selectors
+can still produce false positives. Numeric color expressions
 split over lines, language interpolation, aliases, named colors, and computed
 colors are not fully analyzed. Keep existing language-specific AST guards.
 Configure a meaningful explicit scope; generated files are skipped. Each include is walked from its fixed directory prefix to avoid traversing unrelated trees. Symlinks
