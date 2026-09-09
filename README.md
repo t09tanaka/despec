@@ -97,3 +97,11 @@ CI tests Linux and macOS. The release workflow builds macOS arm64/x86_64 and
 Linux x86_64 binaries and checksum files as workflow artifacts on a version tag
 or manual dispatch. Publishing a release remains a separate manual action.
 The project had no license declaration; this initial implementation adopts MIT.
+
+Before a crates.io release, inspect `cargo package --list --locked` and run
+`cargo publish --dry-run --locked`. In a worktree, first run `portool sync` and
+`portool check`, then run these Cargo commands through `portool exec --`.
+The package explicitly includes sources, tests, manifest, lockfile, README,
+and license; generated local settings are excluded. A successful dry-run
+validates packaging and compilation, not crate-name availability or publishing
+permissions. Actual publication requires a separate authorized action.
