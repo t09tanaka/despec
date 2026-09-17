@@ -177,18 +177,18 @@ const TextStyle typeCaption = TextStyle(
   height: 1.45,
   letterSpacing: 0.72,
 );
-const Map<String, Object> typeCaptionStrong = <String, Object>{
-  'fontSize': '12px',
-  'fontWeight': 500,
-  'lineHeight': 1.45,
-  'letterSpacing': '0.02em',
-};
-const Map<String, Object> typeDisplaySm = <String, Object>{
-  'fontSize': '28px',
-  'fontWeight': 600,
-  'lineHeight': 1.2,
-  'letterSpacing': '-0.02em',
-};
+const TextStyle typeCaptionStrong = TextStyle(
+  fontSize: 12,
+  fontWeight: FontWeight.w500,
+  height: 1.45,
+  letterSpacing: 0.24,
+);
+const TextStyle typeDisplaySm = TextStyle(
+  fontSize: 28,
+  fontWeight: FontWeight.w600,
+  height: 1.2,
+  letterSpacing: -0.56,
+);
 const TextStyle typeHeadingLg = TextStyle(
   fontSize: 28,
   fontWeight: FontWeight.w600,
@@ -207,18 +207,18 @@ const TextStyle typeLabelMd = TextStyle(
   height: 1.4,
   letterSpacing: 0,
 );
-const Map<String, Object> typeLabelSm = <String, Object>{
-  'fontSize': '12px',
-  'fontWeight': 600,
-  'lineHeight': 1.45,
-  'letterSpacing': '0.04em',
-};
-const Map<String, Object> typeLabelUppercase = <String, Object>{
-  'fontSize': '12px',
-  'fontWeight': 600,
-  'lineHeight': 1.45,
-  'letterSpacing': '0.08em',
-};
+const TextStyle typeLabelSm = TextStyle(
+  fontSize: 12,
+  fontWeight: FontWeight.w600,
+  height: 1.45,
+  letterSpacing: 0.48,
+);
+const TextStyle typeLabelUppercase = TextStyle(
+  fontSize: 12,
+  fontWeight: FontWeight.w600,
+  height: 1.45,
+  letterSpacing: 0.96,
+);
 const TextStyle typeMarketingBodyLg = TextStyle(
   fontSize: 18,
   fontWeight: FontWeight.w500,
@@ -309,36 +309,36 @@ const TextStyle typeMarketingTitleLg = TextStyle(
   height: 1.2,
   letterSpacing: 0,
 );
-const Map<String, Object> typeStatLg = <String, Object>{
-  'fontSize': '30px',
-  'fontWeight': 600,
-  'lineHeight': 1.1,
-  'letterSpacing': '-0.02em',
-};
-const Map<String, Object> typeStatMd = <String, Object>{
-  'fontSize': '24px',
-  'fontWeight': 600,
-  'lineHeight': 1.15,
-  'letterSpacing': '-0.015em',
-};
+const TextStyle typeStatLg = TextStyle(
+  fontSize: 30,
+  fontWeight: FontWeight.w600,
+  height: 1.1,
+  letterSpacing: -0.6,
+);
+const TextStyle typeStatMd = TextStyle(
+  fontSize: 24,
+  fontWeight: FontWeight.w600,
+  height: 1.15,
+  letterSpacing: -0.36,
+);
 const TextStyle typeStatSm = TextStyle(
   fontSize: 13,
   fontWeight: FontWeight.w600,
   height: 1.35,
   letterSpacing: 0,
 );
-const Map<String, Object> typeTitleLg = <String, Object>{
-  'fontSize': '24px',
-  'fontWeight': 600,
-  'lineHeight': 1.25,
-  'letterSpacing': '-0.015em',
-};
-const Map<String, Object> typeTitleMd = <String, Object>{
-  'fontSize': '20px',
-  'fontWeight': 600,
-  'lineHeight': 1.3,
-  'letterSpacing': '-0.01em',
-};
+const TextStyle typeTitleLg = TextStyle(
+  fontSize: 24,
+  fontWeight: FontWeight.w600,
+  height: 1.25,
+  letterSpacing: -0.36,
+);
+const TextStyle typeTitleMd = TextStyle(
+  fontSize: 20,
+  fontWeight: FontWeight.w600,
+  height: 1.3,
+  letterSpacing: -0.2,
+);
 const TextStyle typeTitleSm = TextStyle(
   fontSize: 18,
   fontWeight: FontWeight.w600,
