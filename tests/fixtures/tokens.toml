@@ -1,0 +1,155 @@
+[tokens]
+"accent-50" = { "type" = "color", "value" = "#e0f1f7" }
+"accent-100" = { "type" = "color", "value" = "#bbe0ee" }
+"accent-300" = { "type" = "color", "value" = "#6bbcd2" }
+"accent-400" = { "type" = "color", "value" = "#3da2ba" }
+"accent-500" = { "type" = "color", "value" = "#1a7f94" }
+"accent-600" = { "type" = "color", "value" = "#176d80" }
+"accent-700" = { "type" = "color", "value" = "#145b6b" }
+"android-mock-accent" = { "type" = "color", "value" = "#c8cfff" }
+"android-mock-accent-strong" = { "type" = "color", "value" = "#b6c0ff" }
+"android-mock-accent-text" = { "type" = "color", "value" = "#303a70" }
+"android-mock-card-bg" = { "type" = "color", "value" = "#2a2849" }
+"android-mock-control-bg" = { "type" = "color", "value" = "#24233f" }
+"android-mock-fg" = { "type" = "color", "value" = "#f2f0ff" }
+"android-mock-home-indicator" = { "type" = "color", "value" = "#eeeef1" }
+"android-mock-muted" = { "type" = "color", "value" = "#c1bedb" }
+"android-mock-screen-bg" = { "type" = "color", "value" = "#18172c" }
+"android-mock-toggle-knob" = { "type" = "color", "value" = "#3a4379" }
+"bg-accent-soft" = { "type" = "color", "value" = "#e0f1f7" }
+"bg-canvas" = { "type" = "color", "value" = "#ffffff" }
+"bg-error-solid" = { "type" = "color", "value" = "#e2111b" }
+"bg-subtle" = { "type" = "color", "value" = "#e8eef4" }
+"bg-success-solid" = { "type" = "color", "value" = "#1e8058" }
+"bg-surface" = { "type" = "color", "value" = "#f3f6fa" }
+"border-accent" = { "type" = "color", "value" = "#6bbcd2" }
+"border-control" = { "type" = "color", "value" = "#7b8896" }
+"border-default" = { "type" = "color", "value" = "#d8e1ea" }
+"border-strong" = { "type" = "color", "value" = "#c2ceda" }
+"container-width" = { "type" = "dimension", "value" = { "value" = 1080, "unit" = "px" }, "scssDefault" = true }
+"container-width-tight" = { "type" = "dimension", "value" = { "value" = 640, "unit" = "px" }, "scssDefault" = true }
+"content-width" = { "type" = "dimension", "value" = { "value" = 860, "unit" = "px" }, "scssDefault" = true }
+"elevation-100" = { "type" = "shadow", "value" = { "offsetX" = { "value" = 0, "unit" = "px" }, "offsetY" = { "value" = 6, "unit" = "px" }, "blur" = { "value" = 18, "unit" = "px" }, "color" = "rgba(18, 25, 38, 0.08)" } }
+"elevation-200" = { "type" = "shadow", "value" = { "offsetX" = { "value" = 0, "unit" = "px" }, "offsetY" = { "value" = 14, "unit" = "px" }, "blur" = { "value" = 32, "unit" = "px" }, "color" = "rgba(18, 25, 38, 0.12)" } }
+"elevation-modal" = { "type" = "shadow", "value" = { "offsetX" = { "value" = 0, "unit" = "px" }, "offsetY" = { "value" = 24, "unit" = "px" }, "blur" = { "value" = 48, "unit" = "px" }, "color" = "rgba(18, 25, 38, 0.18)" } }
+"elevation-none" = { "type" = "shadow", "value" = "none" }
+"error-50" = { "type" = "color", "value" = "#fef2f3" }
+"error-200" = { "type" = "color", "value" = "#fecdd2" }
+"error-400" = { "type" = "color", "value" = "#fc6b72" }
+"error-500" = { "type" = "color", "value" = "#fb2c36" }
+"error-600" = { "type" = "color", "value" = "#e2111b" }
+"error-700" = { "type" = "color", "value" = "#be1219" }
+"fg-accent" = { "type" = "color", "value" = "#1a7f94" }
+"fg-accent-strong" = { "type" = "color", "value" = "#145b6b" }
+"fg-disabled" = { "type" = "color", "value" = "#7b8896" }
+"fg-error" = { "type" = "color", "value" = "#be1219" }
+"fg-primary" = { "type" = "color", "value" = "#141b23" }
+"fg-secondary" = { "type" = "color", "value" = "#444e59" }
+"fg-success" = { "type" = "color", "value" = "#186c48" }
+"fg-tertiary" = { "type" = "color", "value" = "#636e7a" }
+"fg-warning" = { "type" = "color", "value" = "#b45309" }
+"focus-ring-color" = { "type" = "color", "value" = "#1a7f94" }
+"focus-ring-color-inverse" = { "type" = "color", "value" = "#ffffff" }
+"focus-ring-offset" = { "type" = "dimension", "value" = { "value" = 2, "unit" = "px" } }
+"focus-ring-width" = { "type" = "dimension", "value" = { "value" = 2, "unit" = "px" } }
+"font-family" = { "type" = "fontFamily", "value" = "'Hiragino Kaku Gothic Pro', 'Noto Sans JP', 'Inter', sans-serif" }
+"font-family-ios" = { "type" = "fontFamily", "value" = "-apple-system, BlinkMacSystemFont, \"SF Pro Display\", \"Helvetica Neue\", sans-serif" }
+"font-family-sans" = { "type" = "fontFamily", "value" = "-apple-system, BlinkMacSystemFont, 'Hiragino Kaku Gothic Pro','ヒラギノ角ゴ Pro W3','メイリオ',Meiryo,'ＭＳ Ｐゴシック', 'Noto Sans JP', sans-serif" }
+"gray-50" = { "type" = "color", "value" = "#f3f6fa" }
+"gray-100" = { "type" = "color", "value" = "#e8eef4" }
+"gray-200" = { "type" = "color", "value" = "#d8e1ea" }
+"gray-300" = { "type" = "color", "value" = "#c2ceda" }
+"gray-400" = { "type" = "color", "value" = "#9aa7b5" }
+"gray-500" = { "type" = "color", "value" = "#7b8896" }
+"gray-600" = { "type" = "color", "value" = "#636e7a" }
+"gray-700" = { "type" = "color", "value" = "#444e59" }
+"gray-900" = { "type" = "color", "value" = "#141b23" }
+"grey-color-dark" = { "type" = "color", "value" = "#000000" }
+"ios-device-frame" = { "type" = "color", "value" = "#1c1c1e" }
+"ios-device-island" = { "type" = "color", "value" = "#000000" }
+"ios-mock-blue" = { "type" = "color", "value" = "#0088ff" }
+"ios-mock-blue-strong" = { "type" = "color", "value" = "#347df1" }
+"ios-mock-card-bg" = { "type" = "color", "value" = "#ffffff" }
+"ios-mock-chevron" = { "type" = "color", "value" = "#c7c7cc" }
+"ios-mock-fg" = { "type" = "color", "value" = "#050509" }
+"ios-mock-green" = { "type" = "color", "value" = "#34c759" }
+"ios-mock-muted" = { "type" = "color", "value" = "#8e8e93" }
+"ios-mock-red" = { "type" = "color", "value" = "#ff3b30" }
+"ios-mock-screen-bg" = { "type" = "color", "value" = "#f2f2f7" }
+"ios-mock-separator" = { "type" = "color", "value" = "#e2e2e6" }
+"ios-mock-toggle-off" = { "type" = "color", "value" = "rgba(120, 120, 128, 0.28)" }
+"overlay-interactive" = { "type" = "color", "value" = "rgba(18, 25, 38, 0.12)" }
+"overlay-scrim" = { "type" = "color", "value" = "rgba(18, 25, 38, 0.56)" }
+"radius-lg" = { "type" = "dimension", "value" = { "value" = 16, "unit" = "px" } }
+"radius-md" = { "type" = "dimension", "value" = { "value" = 10, "unit" = "px" } }
+"radius-none" = { "type" = "number", "value" = 0 }
+"radius-pill" = { "type" = "dimension", "value" = { "value" = 999, "unit" = "px" } }
+"radius-sm" = { "type" = "dimension", "value" = { "value" = 6, "unit" = "px" } }
+"space-2xl" = { "type" = "dimension", "value" = { "value" = 24, "unit" = "px" } }
+"space-3xl" = { "type" = "dimension", "value" = { "value" = 32, "unit" = "px" } }
+"space-4xl" = { "type" = "dimension", "value" = { "value" = 40, "unit" = "px" } }
+"space-5xl" = { "type" = "dimension", "value" = { "value" = 48, "unit" = "px" } }
+"space-lg" = { "type" = "dimension", "value" = { "value" = 16, "unit" = "px" } }
+"space-md" = { "type" = "dimension", "value" = { "value" = 12, "unit" = "px" } }
+"space-sm" = { "type" = "dimension", "value" = { "value" = 8, "unit" = "px" } }
+"space-xl" = { "type" = "dimension", "value" = { "value" = 20, "unit" = "px" } }
+"space-xs" = { "type" = "dimension", "value" = { "value" = 4, "unit" = "px" } }
+"success-50" = { "type" = "color", "value" = "#e4f5ed" }
+"success-200" = { "type" = "color", "value" = "#a8dfc4" }
+"success-500" = { "type" = "color", "value" = "#259e6d" }
+"success-600" = { "type" = "color", "value" = "#1e8058" }
+"success-700" = { "type" = "color", "value" = "#186c48" }
+"mobile-type-body-md" = { "targets" = { "dart" = "mobileTypeBodyMd" }, "type" = "typography", "value" = { "fontSize" = { "value" = 16, "unit" = "px" }, "lineHeight" = 1.6 } }
+"mobile-type-body-sm" = { "targets" = { "dart" = "mobileTypeBodySm" }, "type" = "typography", "value" = { "fontSize" = { "value" = 14, "unit" = "px" }, "lineHeight" = 1.55 } }
+"mobile-type-caption" = { "targets" = { "dart" = "mobileTypeCaption" }, "type" = "typography", "value" = { "fontSize" = { "value" = 12, "unit" = "px" }, "lineHeight" = 1.45, "letterSpacing" = { "value" = 0.72, "unit" = "px" } } }
+"mobile-type-heading-lg" = { "targets" = { "dart" = "mobileTypeHeadingLg" }, "type" = "typography", "value" = { "fontSize" = { "value" = 28, "unit" = "px" }, "lineHeight" = 1.2 } }
+"mobile-type-heading-md" = { "targets" = { "dart" = "mobileTypeHeadingMd" }, "type" = "typography", "value" = { "fontSize" = { "value" = 20, "unit" = "px" }, "lineHeight" = 1.3 } }
+"tap-target-min" = { "type" = "dimension", "value" = { "value" = 44, "unit" = "px" } }
+"table-text-align" = { "type" = "keyword", "value" = "left", "scssDefault" = true }
+"type-badge-xs" = { "type" = "typography", "value" = { "fontSize" = { "value" = 10, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.2, "letterSpacing" = 0 } }
+"type-body-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 18, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.6, "letterSpacing" = 0 } }
+"type-body-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 16, "unit" = "px" }, "fontWeight" = 400, "lineHeight" = 1.6, "letterSpacing" = 0 } }
+"type-body-sm" = { "type" = "typography", "value" = { "fontSize" = { "value" = 14, "unit" = "px" }, "fontWeight" = 400, "lineHeight" = 1.55, "letterSpacing" = 0 } }
+"type-body-sm-strong" = { "type" = "typography", "value" = { "fontSize" = { "value" = 14, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.55, "letterSpacing" = 0 } }
+"type-caption-client" = { "targets" = { "css" = "type-caption", "scss" = "type-caption-client", "dart" = "typeCaption" }, "type" = "typography", "value" = { "fontSize" = { "value" = 12, "unit" = "px" }, "fontWeight" = 400, "lineHeight" = 1.45, "letterSpacing" = { "value" = 0.72, "unit" = "px" } } }
+"type-caption" = { "targets" = { "css" = "type-caption-landing", "dart" = "typeCaptionLanding" }, "type" = "typography", "value" = { "fontSize" = { "value" = 12, "unit" = "px" }, "fontWeight" = 400, "lineHeight" = 1.45, "letterSpacing" = 0 } }
+"type-caption-strong" = { "type" = "typography", "value" = { "fontSize" = { "value" = 12, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.45, "letterSpacing" = { "value" = 0.02, "unit" = "em" } } }
+"type-display-sm" = { "type" = "typography", "value" = { "fontSize" = { "value" = 28, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.2, "letterSpacing" = { "value" = -0.02, "unit" = "em" } } }
+"type-heading-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 28, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.2, "letterSpacing" = 0 } }
+"type-heading-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 20, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.3, "letterSpacing" = 0 } }
+"type-label-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 14, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.4, "letterSpacing" = 0 } }
+"type-label-sm" = { "type" = "typography", "value" = { "fontSize" = { "value" = 12, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.45, "letterSpacing" = { "value" = 0.04, "unit" = "em" } } }
+"type-label-uppercase" = { "type" = "typography", "value" = { "fontSize" = { "value" = 12, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.45, "letterSpacing" = { "value" = 0.08, "unit" = "em" } } }
+"type-marketing-body-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 18, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.6, "letterSpacing" = 0 } }
+"type-marketing-body-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 16, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.6, "letterSpacing" = 0 } }
+"type-marketing-body-xl" = { "type" = "typography", "value" = { "fontSize" = { "value" = 20, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.6, "letterSpacing" = 0 } }
+"type-marketing-card-title-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 32, "unit" = "px" }, "fontWeight" = 700, "lineHeight" = 1.18, "letterSpacing" = 0 } }
+"type-marketing-card-title-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 24, "unit" = "px" }, "fontWeight" = 700, "lineHeight" = 1.18, "letterSpacing" = 0 } }
+"type-marketing-card-title-xl" = { "type" = "typography", "value" = { "fontSize" = { "value" = 36, "unit" = "px" }, "fontWeight" = 700, "lineHeight" = 1.18, "letterSpacing" = 0 } }
+"type-marketing-display-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 40, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.15, "letterSpacing" = 0 } }
+"type-marketing-display-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 32, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.2, "letterSpacing" = 0 } }
+"type-marketing-lead-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 22, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.55, "letterSpacing" = 0 } }
+"type-marketing-lead-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 18, "unit" = "px" }, "fontWeight" = 500, "lineHeight" = 1.6, "letterSpacing" = 0 } }
+"type-marketing-page-title-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 40, "unit" = "px" }, "fontWeight" = 800, "lineHeight" = 1.15, "letterSpacing" = 0 } }
+"type-marketing-page-title-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 32, "unit" = "px" }, "fontWeight" = 800, "lineHeight" = 1.2, "letterSpacing" = 0 } }
+"type-marketing-section-title-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 34, "unit" = "px" }, "fontWeight" = 700, "lineHeight" = 1.18, "letterSpacing" = 0 } }
+"type-marketing-section-title-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 28, "unit" = "px" }, "fontWeight" = 700, "lineHeight" = 1.2, "letterSpacing" = 0 } }
+"type-marketing-title-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 28, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.2, "letterSpacing" = 0 } }
+"type-stat-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 30, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.1, "letterSpacing" = { "value" = -0.02, "unit" = "em" } } }
+"type-stat-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 24, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.15, "letterSpacing" = { "value" = -0.015, "unit" = "em" } } }
+"type-stat-sm" = { "type" = "typography", "value" = { "fontSize" = { "value" = 13, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.35, "letterSpacing" = 0 } }
+"type-title-lg" = { "type" = "typography", "value" = { "fontSize" = { "value" = 24, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.25, "letterSpacing" = { "value" = -0.015, "unit" = "em" } } }
+"type-title-md" = { "type" = "typography", "value" = { "fontSize" = { "value" = 20, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.3, "letterSpacing" = { "value" = -0.01, "unit" = "em" } } }
+"type-title-sm" = { "type" = "typography", "value" = { "fontSize" = { "value" = 18, "unit" = "px" }, "fontWeight" = 600, "lineHeight" = 1.35, "letterSpacing" = 0 } }
+"warning-50" = { "type" = "color", "value" = "#fff8e6" }
+"warning-500" = { "type" = "color", "value" = "#fe9a00" }
+"warning-600" = { "type" = "color", "value" = "#d88300" }
+"warning-700" = { "type" = "color", "value" = "#b45309" }
+"z-drawer" = { "type" = "number", "value" = 100 }
+"z-drawer-scrim" = { "type" = "number", "value" = 90 }
+"z-dropdown" = { "type" = "number", "value" = 30 }
+"z-header" = { "type" = "number", "value" = 40 }
+"z-modal" = { "type" = "number", "value" = 110 }
+"z-overlay-blocking" = { "type" = "number", "value" = 120 }
+"z-page-loader" = { "type" = "number", "value" = 50 }
+"z-toast" = { "type" = "number", "value" = 50 }

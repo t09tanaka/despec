@@ -1,0 +1,23 @@
+[package]
+name = "despec"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+repository = "https://github.com/t09tanaka/despec"
+include = ["src/**", "tests/**", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE"]
+license = "MIT"
+description = "Deterministic design token generation and source policy checks"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+regex = "1"
+globset = "0.4"
+walkdir = "2"
+tempfile = "3"
+
+[profile.release]
+lto = true
+strip = true
