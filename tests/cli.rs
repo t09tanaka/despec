@@ -18,7 +18,7 @@ fn fixture() -> tempfile::TempDir {
     d
 }
 #[test]
-fn legacy_bodies_match() {
+fn generated_bodies_match() {
     let d = fixture();
     let result = run(d.path(), &["generate"]);
     assert!(
@@ -39,6 +39,87 @@ fn legacy_bodies_match() {
         );
     }
     assert!(run(d.path(), &["check"]).status.success());
+}
+
+#[test]
+fn dart_typography_letter_spacing_conversion_and_fallback() {
+    use despec::catalog::render;
+    use serde_json::json;
+    for (size, unit, spacing, weight, expected) in [
+        (
+            24.0,
+            "px",
+            json!({"value": -0.015, "unit": "em"}),
+            600,
+            Some("-0.36"),
+        ),
+        (
+            12.5,
+            "px",
+            json!({"value": 0.02, "unit": "em"}),
+            600,
+            Some("0.25"),
+        ),
+        (
+            24.0,
+            "px",
+            json!({"value": -0.0, "unit": "em"}),
+            600,
+            Some("0"),
+        ),
+        (
+            24.0,
+            "px",
+            json!({"value": 0.72, "unit": "px"}),
+            600,
+            Some("0.72"),
+        ),
+        (24.0, "px", json!(0), 600, Some("0")),
+        (24.0, "px", json!(1.5), 600, Some("1.5")),
+        (
+            1.5,
+            "rem",
+            json!({"value": -0.015, "unit": "em"}),
+            600,
+            None,
+        ),
+        (24.0, "px", json!({"value": 0.02, "unit": "rem"}), 600, None),
+        (24.0, "px", json!({"value": 0.02, "unit": "em"}), 550, None),
+        (1e308, "px", json!({"value": 2, "unit": "em"}), 600, None),
+    ] {
+        let tokens = serde_json::from_value(json!({"title": {
+            "type": "typography",
+            "value": {"fontSize": {"value": size, "unit": unit},
+                "fontWeight": weight, "lineHeight": 1.25, "letterSpacing": spacing}
+        }}))
+        .unwrap();
+        let dart = render(&tokens, "dart", "generated").unwrap();
+        if let Some(expected) = expected {
+            assert!(
+                dart.contains("const TextStyle title = TextStyle("),
+                "{dart}"
+            );
+            assert!(
+                dart.contains(&format!("  letterSpacing: {expected},")),
+                "{dart}"
+            );
+        } else {
+            assert!(
+                dart.contains("const Map<String, Object> title = <String, Object>{"),
+                "{dart}"
+            );
+            let scss = render(&tokens, "scss", "generated").unwrap();
+            let original = scss
+                .lines()
+                .find_map(|line| line.strip_prefix("$title-letter-spacing: "))
+                .unwrap()
+                .trim_end_matches(';');
+            assert!(
+                dart.contains(&format!("  'letterSpacing': '{original}',")),
+                "{dart}"
+            );
+        }
+    }
 }
 #[test]
 fn stale_and_invalid_are_read_only() {

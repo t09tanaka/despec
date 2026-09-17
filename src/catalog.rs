@@ -274,9 +274,21 @@ fn dart(p: &str, t: &Value) -> String {
             }
         }
         "typography" => {
+            let letter_spacing = v.get("letterSpacing").and_then(|x| {
+                let value = if !x.is_object() {
+                    x.as_f64()
+                } else if x["unit"] == "px" {
+                    x["value"].as_f64()
+                } else if x["unit"] == "em" {
+                    // em is relative to this typography token's font size.
+                    Some(x["value"].as_f64().unwrap() * v["fontSize"]["value"].as_f64().unwrap())
+                } else {
+                    None
+                };
+                value.filter(|n| n.is_finite())
+            });
             let supported = v["fontSize"]["unit"] == "px"
-                && v.get("letterSpacing")
-                    .is_none_or(|x| !x.is_object() || x["unit"] == "px")
+                && (v.get("letterSpacing").is_none() || letter_spacing.is_some())
                 && v.get("fontWeight").is_none_or(|x| {
                     let w = x.as_f64().unwrap();
                     (100.0..=900.0).contains(&w) && w % 100.0 == 0.0
@@ -289,6 +301,8 @@ fn dart(p: &str, t: &Value) -> String {
                         let key = if p == "lineHeight" { "height" } else { p };
                         let value = if p == "fontWeight" {
                             format!("FontWeight.w{}", num(x))
+                        } else if p == "letterSpacing" {
+                            num(&Value::from(letter_spacing.unwrap()))
                         } else if x.is_object() {
                             num(&x["value"])
                         } else {

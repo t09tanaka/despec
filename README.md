@@ -53,7 +53,10 @@ letterSpacing). Quote token names containing dots. Metadata such as description
 is accepted. `targets = { css = "name", scss = "name", dart = "camelName" }`
 overrides names; `scssDefault = true` emits Sass `!default`. CSS names get a
 `--ds-` prefix. Dart emits TextStyle for pixel typography with supported weights
-100, 200, …, 900; other typography becomes a constant map. Absent optional fields
+100, 200, …, 900. Letter spacing in `em` is multiplied by the token’s pixel
+font size for Dart; CSS/SCSS retain `em`. Numeric and `px` letter spacing are
+unchanged. Non-pixel font sizes, unsupported letter-spacing units or weights,
+and non-finite conversion results fall back to a constant map. Absent optional fields
 remain absent. Dollar signs in Dart strings are escaped. Font families cannot
 contain statement delimiters or line breaks.
 
