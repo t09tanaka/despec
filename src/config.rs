@@ -8,10 +8,26 @@ pub struct Config {
     pub schema_version: u32,
     pub required_version: String,
     pub tokens: BTreeMap<String, Value>,
-    pub outputs: BTreeMap<String, PathBuf>,
+    pub outputs: BTreeMap<String, OutputPaths>,
     pub sources: Option<Sources>,
     #[serde(default)]
     pub exceptions: Vec<Exception>,
+}
+/// One target may be written to several destinations, for example one CSS file per
+/// front-end project that shares the catalog.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum OutputPaths {
+    One(PathBuf),
+    Many(Vec<PathBuf>),
+}
+impl OutputPaths {
+    pub fn paths(&self) -> &[PathBuf] {
+        match self {
+            OutputPaths::One(p) => std::slice::from_ref(p),
+            OutputPaths::Many(ps) => ps,
+        }
+    }
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -32,6 +48,15 @@ pub struct Exception {
     pub count: usize,
 }
 impl Config {
+    /// Every (target, destination) pair, in configuration order.
+    pub fn output_paths(&self) -> impl Iterator<Item = (&str, &PathBuf)> {
+        self.outputs
+            .iter()
+            .flat_map(|(target, paths)| paths.paths().iter().map(move |p| (target.as_str(), p)))
+    }
+    pub fn is_output(&self, p: &std::path::Path) -> bool {
+        self.output_paths().any(|(_, o)| o == p)
+    }
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
             return Err("schema_version must be 1".into());
@@ -49,15 +74,22 @@ impl Config {
         if self.outputs.is_empty() {
             return Err("outputs must not be empty".into());
         }
-        for (target, path) in &self.outputs {
+        for (target, paths) in &self.outputs {
             if !["css", "scss", "dart"].contains(&target.as_str()) {
                 return Err(format!("unknown output target {target}"));
             }
-            if !safe_path(path) {
+            if paths.paths().is_empty() {
                 return Err(format!(
-                    "output must be a relative path without parent traversal: {}",
-                    path.display()
+                    "output target {target} must list at least one path"
                 ));
+            }
+            for path in paths.paths() {
+                if !safe_path(path) {
+                    return Err(format!(
+                        "output must be a relative path without parent traversal: {}",
+                        path.display()
+                    ));
+                }
             }
         }
         if let Some(sources) = &self.sources {
