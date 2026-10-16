@@ -13,7 +13,7 @@ TOML configuration; all paths resolve relative to its directory.
 
 ```toml
 schema_version = 1
-required_version = "0.1.0"
+required_version = "0.3.0"
 
 [outputs]
 css = "generated/tokens.css"            # one destination
@@ -24,9 +24,13 @@ dart = "generated/tokens.dart"
 include = ["src/**/*.css", "src/**/*.scss", "lib/**/*.dart"]
 exclude = ["src/vendor/**"]
 
+[modes.dark]
+css = ".dark" # or '[data-theme="dark"]', or "@media (prefers-color-scheme: dark)"
+
 [tokens."accent.primary"]
 type = "color"
 value = "#123456"
+modes = { dark = "#7ab8ff" }
 
 [tokens."type.body.md"]
 type = "typography"
@@ -47,6 +51,24 @@ duplicate TOML keys, invalid tokens, output collisions, and unsafe output paths
 fail before output writing. At least one output and token are required. A target
 lists one path or several; every listed file is generated identically, checked for
 staleness by itself, and excluded from source scanning.
+
+Modes give color and shadow tokens alternative values, such as a dark theme.
+Declare each mode under `[modes.<name>]` with a kebab-case name, then set its value
+beside the default with `modes = { <name> = <value> }`. A mode value has the same
+form as the token's `value`.
+CSS reuses the default property names in a block after `:root`, under the mode's
+`css` selector, so tokens without a mode value keep their default there. A `css`
+starting with `@media`, `@supports`, or `@container` instead wraps `:root`. Mode
+blocks follow `:root` in mode-name order, so the selector needs at least the
+specificity of `:root` (a class or attribute selector; not `html` or `*`), and when
+several modes apply at once the last in name order wins. `css` is required only
+when a CSS output is configured; braces, semicolons, comments, and unbalanced
+quotes or brackets are rejected. Sass and Dart have no cascade, so
+mode values become separate declarations named with the mode as a suffix:
+`$accent-primary-dark` and `accentPrimaryDark`. Only tokens with a mode value get
+one, so Sass and Dart consumers fall back to the default name themselves. Referring to an undeclared mode,
+declaring a mode no token uses, and mode values on other token types are errors;
+suffixed names take part in output name collision checks.
 
 Tokens support `color` (#RRGGBB or rgba), `dimension` (numeric value and unit),
 `number`, `keyword`, `fontFamily`, `shadow` (none or pixel offsetX/offsetY/blur

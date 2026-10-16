@@ -12,6 +12,15 @@ pub struct Config {
     pub sources: Option<Sources>,
     #[serde(default)]
     pub exceptions: Vec<Exception>,
+    #[serde(default)]
+    pub modes: BTreeMap<String, Mode>,
+}
+/// An alternative set of token values, such as a dark theme. `css` is the selector or
+/// at-rule that activates it; at-rules wrap a `:root` block.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Mode {
+    pub css: Option<String>,
 }
 /// One target may be written to several destinations, for example one CSS file per
 /// front-end project that shares the catalog.
@@ -92,6 +101,25 @@ impl Config {
                 }
             }
         }
+        let kebab = regex::Regex::new(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$").unwrap();
+        for (name, mode) in &self.modes {
+            if !kebab.is_match(name) {
+                return Err(format!("mode name must be lowercase kebab-case: {name}"));
+            }
+            match &mode.css {
+                Some(css) if !mode_css(css) => {
+                    return Err(format!(
+                        "mode {name} css must be one selector, or an @media, @supports, or @container condition, without braces, semicolons, comments, or unbalanced quotes and brackets"
+                    ));
+                }
+                None if self.outputs.contains_key("css") => {
+                    return Err(format!(
+                        "mode {name} requires css when a css output is configured"
+                    ));
+                }
+                _ => (),
+            }
+        }
         if let Some(sources) = &self.sources {
             for pattern in sources.include.iter().chain(&sources.exclude) {
                 if pattern.is_empty()
@@ -127,6 +155,35 @@ pub fn safe_path(p: &std::path::Path) -> bool {
             .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
+/// A mode's `css` is written verbatim before a block, so reject anything that could
+/// end that block early or leave the rest of the file inside a comment or string.
+fn mode_css(css: &str) -> bool {
+    let at_rule_ok = !css.starts_with('@')
+        || ["@media ", "@supports ", "@container "]
+            .iter()
+            .any(|p| css.starts_with(p) && css.len() > p.len());
+    let mut closers = vec![];
+    let mut quote = None;
+    for c in css.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => (),
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(') => closers.push(')'),
+            (None, '[') => closers.push(']'),
+            (None, ')' | ']') if closers.pop() != Some(c) => return false,
+            _ => (),
+        }
+    }
+    at_rule_ok
+        && quote.is_none()
+        && closers.is_empty()
+        && !css.trim().is_empty()
+        && css.trim() == css
+        && !css.contains(['{', '}', ';', '\\', '\n', '\r'])
+        && !css.contains("/*")
+        && !css.contains("*/")
+}
 fn one() -> usize {
     1
 }

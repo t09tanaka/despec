@@ -93,7 +93,7 @@ fn dart_typography_letter_spacing_conversion_and_fallback() {
                 "fontWeight": weight, "lineHeight": 1.25, "letterSpacing": spacing}
         }}))
         .unwrap();
-        let dart = render(&tokens, "dart", "generated").unwrap();
+        let dart = render(&tokens, &Default::default(), "dart", "generated").unwrap();
         if let Some(expected) = expected {
             assert!(
                 dart.contains("const TextStyle title = TextStyle("),
@@ -108,7 +108,7 @@ fn dart_typography_letter_spacing_conversion_and_fallback() {
                 dart.contains("const Map<String, Object> title = <String, Object>{"),
                 "{dart}"
             );
-            let scss = render(&tokens, "scss", "generated").unwrap();
+            let scss = render(&tokens, &Default::default(), "scss", "generated").unwrap();
             let original = scss
                 .lines()
                 .find_map(|line| line.strip_prefix("$title-letter-spacing: "))
@@ -194,12 +194,12 @@ fn validation_collisions_and_dart_safety() {
         r##"{"a":{"type":"shadow","value":{"offsetX":2}}}"##,
         r##"{"a":{"type":"dimension","value":{"value":2,"unit":"px;"}}}"##,
     ] {
-        assert!(validate(&parse(input)).is_err());
+        assert!(validate(&parse(input), &Default::default()).is_err());
     }
     let ts = parse(
         r##"{"a":{"type":"typography","value":{"fontSize":{"value":12,"unit":"px"},"fontWeight":101,"lineHeight":1.2}},"b":{"type":"fontFamily","value":"$font"}}"##,
     );
-    let result = render(&ts, "dart", "generated").unwrap();
+    let result = render(&ts, &Default::default(), "dart", "generated").unwrap();
     assert!(result.contains("Map<String, Object>"));
     assert!(result.contains("\\$font"));
 }
@@ -353,4 +353,209 @@ fn one_target_may_have_several_destinations() {
             .replace(bad, "css = [\"out.css\", \"admin/out.css\"]");
         fs::write(&p, text).unwrap();
     }
+}
+
+fn modes_fixture(extra: &str) -> tempfile::TempDir {
+    let d = tempfile::tempdir().unwrap();
+    fs::write(
+        d.path().join(".despec.toml"),
+        format!(
+            r##"schema_version = 1
+required_version = "{}"
+[outputs]
+css = "out.css"
+scss = "out.scss"
+dart = "out.dart"
+[modes.dark]
+css = ".dark"
+[modes.high-contrast]
+css = "@media (prefers-contrast: more)"
+[tokens]
+"bg.canvas" = {{ type = "color", value = "#ffffff", modes = {{ dark = "#0b0d10", high-contrast = "#000000" }} }}
+"shadow.card" = {{ type = "shadow", value = {{ offsetX = {{ value = 0, unit = "px" }}, offsetY = {{ value = 1, unit = "px" }}, blur = {{ value = 2, unit = "px" }}, color = "rgba(0, 0, 0, 0.1)" }}, modes = {{ dark = "none" }} }}
+"space.md" = {{ type = "dimension", value = {{ value = 16, unit = "px" }} }}
+{extra}"##,
+            env!("CARGO_PKG_VERSION")
+        ),
+    )
+    .unwrap();
+    d
+}
+#[test]
+fn mode_values_render_per_target() {
+    let d = modes_fixture("");
+    let result = run(d.path(), &["generate"]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let body = |ext: &str| {
+        fs::read_to_string(d.path().join(format!("out.{ext}")))
+            .unwrap()
+            .split_once('\n')
+            .unwrap()
+            .1
+            .to_owned()
+    };
+    assert_eq!(
+        body("css"),
+        "
+:root {
+  --ds-bg-canvas: #ffffff;
+  --ds-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --ds-space-md: 16px;
+}
+
+.dark {
+  --ds-bg-canvas: #0b0d10;
+  --ds-shadow-card: none;
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --ds-bg-canvas: #000000;
+  }
+}
+"
+    );
+    assert_eq!(
+        body("scss"),
+        "
+$bg-canvas: #ffffff;
+$bg-canvas-dark: #0b0d10;
+$bg-canvas-high-contrast: #000000;
+$shadow-card: 0 1px 2px rgba(0, 0, 0, 0.1);
+$shadow-card-dark: none;
+$space-md: 16px;
+"
+    );
+    let dart = body("dart");
+    for line in [
+        "const Color bgCanvas = Color(0xFFFFFFFF);",
+        "const Color bgCanvasDark = Color(0xFF0B0D10);",
+        "const Color bgCanvasHighContrast = Color(0xFF000000);",
+        "const String shadowCardDark = 'none';",
+    ] {
+        assert!(dart.contains(line), "{line}\n{dart}");
+    }
+    assert!(
+        run(d.path(), &["check", "--generated-only"])
+            .status
+            .success()
+    );
+}
+#[test]
+fn mode_errors_fail_before_writing() {
+    for (extra, rule) in [
+        (
+            r##""fg" = { type = "color", value = "#111111", modes = { sepia = "#222222" } }"##,
+            "token.invalid",
+        ),
+        (
+            r##""gap" = { type = "dimension", value = { value = 1, unit = "px" }, modes = { dark = { value = 2, unit = "px" } } }"##,
+            "token.invalid",
+        ),
+        (
+            r##""fg" = { type = "color", value = "#111111", modes = { dark = "#fff" } }"##,
+            "token.invalid",
+        ),
+        (
+            r##""fg" = { type = "color", value = "#111111", modes = {} }"##,
+            "token.invalid",
+        ),
+        (
+            r##""bg.canvas-dark" = { type = "color", value = "#111111" }"##,
+            "token.invalid",
+        ),
+        ("[modes.unused]\ncss = \".unused\"", "token.invalid"),
+        ("[modes.Bad]\ncss = \".bad\"", "config.invalid"),
+        (
+            "[modes.bad]\ncss = \".bad { color: red }\"",
+            "config.invalid",
+        ),
+        ("[modes.bad]", "config.invalid"),
+        ("[modes.bad]\ncss = \".bad /*\"", "config.invalid"),
+        ("[modes.bad]\ncss = '[data-theme=\"bad]'", "config.invalid"),
+        ("[modes.bad]\ncss = \"@import url(x)\"", "config.invalid"),
+        ("[modes.bad]\ncss = \"@media \"", "config.invalid"),
+        ("[modes.bad]\ncss = \".a)(\"", "config.invalid"),
+        (
+            r##""fx" = { type = "shadow", value = "none", modes = { dark = { offsetX = 1 } } }"##,
+            "token.invalid",
+        ),
+        (
+            r##""fg" = { type = "color", value = "#111111", targets = { scss = "ink" }, modes = { dark = "#222222" } }
+"ink.dark" = { type = "color", value = "#333333" }"##,
+            "token.invalid",
+        ),
+        (
+            "[modes.a-1]\ncss = \".a-1\"\n[modes.a1]\ncss = \".a1\"\n[tokens.fg]\ntype = \"color\"\nvalue = \"#111111\"\nmodes = { a-1 = \"#222222\", a1 = \"#333333\" }",
+            "token.invalid",
+        ),
+    ] {
+        let d = modes_fixture(extra);
+        assert!(!run(d.path(), &["generate"]).status.success(), "{extra}");
+        let output = run(d.path(), &["check", "--json", "--generated-only"]);
+        let v: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(v["diagnostics"][0]["rule_id"], rule, "{extra}\n{v}");
+        assert!(!d.path().join("out.css").exists(), "{extra}");
+    }
+}
+#[test]
+fn modes_without_css_output_need_no_selector() {
+    let d = modes_fixture("");
+    let p = d.path().join(".despec.toml");
+    let text = fs::read_to_string(&p)
+        .unwrap()
+        .replace("css = \"out.css\"\n", "")
+        .replace("css = \".dark\"\n", "");
+    fs::write(&p, text).unwrap();
+    let result = run(d.path(), &["generate"]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+#[test]
+fn mode_names_follow_target_overrides_and_scss_default() {
+    let d = modes_fixture(
+        r##""fg" = { type = "color", value = "#111111", scssDefault = true, targets = { css = "text", scss = "ink", dart = "inkColor" }, modes = { dark = "#eeeeee" } }
+[modes.contrast]
+css = '[data-contrast="more"]'"##,
+    );
+    let p = d.path().join(".despec.toml");
+    let text = fs::read_to_string(&p).unwrap().replace(
+        "modes = { dark = \"#eeeeee\" }",
+        "modes = { dark = \"#eeeeee\", contrast = \"#000000\" }",
+    );
+    fs::write(&p, text).unwrap();
+    let result = run(d.path(), &["generate"]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let read = |ext: &str| fs::read_to_string(d.path().join(format!("out.{ext}"))).unwrap();
+    let css = read("css");
+    assert!(
+        css.contains("\n.dark {\n  --ds-bg-canvas: #0b0d10;\n  --ds-text: #eeeeee;\n"),
+        "{css}"
+    );
+    assert!(
+        css.contains("\n[data-contrast=\"more\"] {\n  --ds-text: #000000;\n}\n"),
+        "{css}"
+    );
+    let scss = read("scss");
+    assert!(scss.contains("$ink: #111111 !default;\n$ink-contrast: #000000 !default;\n$ink-dark: #eeeeee !default;\n"), "{scss}");
+    assert!(read("dart").contains("const Color inkColorDark = Color(0xFFEEEEEE);"));
+    let text = fs::read_to_string(&p)
+        .unwrap()
+        .replace("\"#eeeeee\"", "\"#dddddd\"");
+    fs::write(&p, text).unwrap();
+    let output = run(d.path(), &["check", "--json", "--generated-only"]);
+    assert!(!output.status.success());
+    let v: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["diagnostics"][0]["rule_id"], "generated.stale");
 }
