@@ -26,7 +26,7 @@ enum Command {
 }
 const WARNING: &str = "This file is generated from .despec.toml. Run despec generate.";
 const INITIAL: &str = r##"schema_version = 1
-required_version = "0.1.0"
+required_version = "@VERSION@"
 
 [outputs]
 css = "generated/tokens.css"
@@ -49,8 +49,12 @@ fn run(cli: &Cli) -> Result<(usize, Vec<Diagnostic>), (String, String)> {
             .create_new(true)
             .open(&cli.config)
             .map_err(|e| fail(e.to_string()))?;
-        file.write_all(INITIAL.as_bytes())
-            .map_err(|e| fail(e.to_string()))?;
+        file.write_all(
+            INITIAL
+                .replace("@VERSION@", env!("CARGO_PKG_VERSION"))
+                .as_bytes(),
+        )
+        .map_err(|e| fail(e.to_string()))?;
         return Ok((0, vec![]));
     }
     let input = fs::read_to_string(&cli.config).map_err(|e| fail(e.to_string()))?;
@@ -66,7 +70,7 @@ fn run(cli: &Cli) -> Result<(usize, Vec<Diagnostic>), (String, String)> {
     let config_path = fs::canonicalize(&cli.config).map_err(|e| fail(e.to_string()))?;
     let mut files = vec![];
     let mut seen = std::collections::BTreeSet::new();
-    for (target, p) in &c.outputs {
+    for (target, p) in c.output_paths() {
         let path = root.join(p);
         let mut ancestor = path.as_path();
         while !ancestor.exists() {

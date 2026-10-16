@@ -16,8 +16,8 @@ schema_version = 1
 required_version = "0.1.0"
 
 [outputs]
-css = "generated/tokens.css"
-scss = "generated/_tokens.scss"
+css = "generated/tokens.css"            # one destination
+scss = ["web/_tokens.scss", "admin/_tokens.scss"] # or several, one per project
 dart = "generated/tokens.dart"
 
 [sources]
@@ -44,7 +44,9 @@ count = 1
 The configuration is the single source of truth: no external JSON/YAML catalog.
 Schema version and exact CLI version are required. Unknown configuration keys,
 duplicate TOML keys, invalid tokens, output collisions, and unsafe output paths
-fail before output writing. At least one output and token are required.
+fail before output writing. At least one output and token are required. A target
+lists one path or several; every listed file is generated identically, checked for
+staleness by itself, and excluded from source scanning.
 
 Tokens support `color` (#RRGGBB or rgba), `dimension` (numeric value and unit),
 `number`, `keyword`, `fontFamily`, `shadow` (none or pixel offsetX/offsetY/blur

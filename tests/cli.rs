@@ -9,7 +9,7 @@ fn run(dir: &std::path::Path, args: &[&str]) -> std::process::Output {
 }
 fn fixture() -> tempfile::TempDir {
     let d = tempfile::tempdir().unwrap();
-    fs::write(d.path().join(".despec.toml"),format!("schema_version = 1\nrequired_version = \"0.1.0\"\n[outputs]\ncss = \"out.css\"\nscss = \"out.scss\"\ndart = \"out.dart\"\n[sources]\ninclude = [\"source.scss\"]\n{}",include_str!("fixtures/tokens.toml"))).unwrap();
+    fs::write(d.path().join(".despec.toml"),format!("schema_version = 1\nrequired_version = \"{}\"\n[outputs]\ncss = \"out.css\"\nscss = \"out.scss\"\ndart = \"out.dart\"\n[sources]\ninclude = [\"source.scss\"]\n{}",env!("CARGO_PKG_VERSION"),include_str!("fixtures/tokens.toml"))).unwrap();
     fs::write(
         d.path().join("source.scss"),
         "/* #fff */\n// #123456\na {color: rgba($token, 0.3);}\n",
@@ -171,7 +171,7 @@ fn config_errors_are_json_and_init_never_overwrites() {
     let p = d.path().join(".despec.toml");
     let base = fs::read_to_string(&p).unwrap();
     for text in [
-        base.replace("0.1.0", "9.0.0"),
+        base.replace(env!("CARGO_PKG_VERSION"), "9.0.0"),
         base.replace("schema_version = 1", "schema_version = 2"),
         format!("unknown = true\n{base}"),
         format!("schema_version = 1\n{base}"),
@@ -300,4 +300,57 @@ fn standalone_css_id_selector_is_not_a_color() {
     let json: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["diagnostics"].as_array().unwrap().len(), 1);
     assert_eq!(json["diagnostics"][0]["line"], 2);
+}
+
+#[test]
+fn one_target_may_have_several_destinations() {
+    let d = fixture();
+    let p = d.path().join(".despec.toml");
+    let text = fs::read_to_string(&p)
+        .unwrap()
+        .replace(
+            "css = \"out.css\"",
+            "css = [\"out.css\", \"admin/out.css\"]",
+        )
+        .replace(
+            "include = [\"source.scss\"]",
+            "include = [\"source.scss\", \"admin/*.css\"]",
+        );
+    fs::write(&p, text).unwrap();
+    fs::create_dir(d.path().join("admin")).unwrap();
+    // A handwritten file keeps the admin include pattern from selecting only generated output.
+    fs::write(
+        d.path().join("admin/base.css"),
+        "a { color: var(--ds-accent-500); }\n",
+    )
+    .unwrap();
+    assert!(run(d.path(), &["generate"]).status.success());
+    assert_eq!(
+        fs::read_to_string(d.path().join("out.css")).unwrap(),
+        fs::read_to_string(d.path().join("admin/out.css")).unwrap()
+    );
+    // The second destination is a generated file too: never scanned, and stale on its own.
+    assert!(run(d.path(), &["check"]).status.success());
+    fs::write(d.path().join("admin/out.css"), "a { color: #abcdef; }").unwrap();
+    let result = run(d.path(), &["check", "--json"]);
+    assert!(!result.status.success());
+    let v: Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(v["diagnostics"].as_array().unwrap().len(), 1);
+    assert_eq!(v["diagnostics"][0]["rule_id"], "generated.stale");
+    assert_eq!(v["diagnostics"][0]["path"], "admin/out.css");
+    // An empty list and a duplicate destination are configuration errors.
+    for bad in ["css = []", "css = [\"out.css\", \"out.css\"]"] {
+        let text = fs::read_to_string(&p)
+            .unwrap()
+            .replace("css = [\"out.css\", \"admin/out.css\"]", bad);
+        fs::write(&p, text).unwrap();
+        let result = run(d.path(), &["check", "--json"]);
+        assert!(!result.status.success(), "{bad}");
+        let v: Value = serde_json::from_slice(&result.stdout).unwrap();
+        assert_eq!(v["diagnostics"][0]["rule_id"], "config.invalid", "{bad}");
+        let text = fs::read_to_string(&p)
+            .unwrap()
+            .replace(bad, "css = [\"out.css\", \"admin/out.css\"]");
+        fs::write(&p, text).unwrap();
+    }
 }
