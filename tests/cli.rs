@@ -475,6 +475,24 @@ fn mode_errors_fail_before_writing() {
             "config.invalid",
         ),
         ("[modes.bad]", "config.invalid"),
+        ("[modes.bad]\ncss = \".bad /*\"", "config.invalid"),
+        ("[modes.bad]\ncss = '[data-theme=\"bad]'", "config.invalid"),
+        ("[modes.bad]\ncss = \"@import url(x)\"", "config.invalid"),
+        ("[modes.bad]\ncss = \"@media \"", "config.invalid"),
+        ("[modes.bad]\ncss = \".a)(\"", "config.invalid"),
+        (
+            r##""fx" = { type = "shadow", value = "none", modes = { dark = { offsetX = 1 } } }"##,
+            "token.invalid",
+        ),
+        (
+            r##""fg" = { type = "color", value = "#111111", targets = { scss = "ink" }, modes = { dark = "#222222" } }
+"ink.dark" = { type = "color", value = "#333333" }"##,
+            "token.invalid",
+        ),
+        (
+            "[modes.a-1]\ncss = \".a-1\"\n[modes.a1]\ncss = \".a1\"\n[tokens.fg]\ntype = \"color\"\nvalue = \"#111111\"\nmodes = { a-1 = \"#222222\", a1 = \"#333333\" }",
+            "token.invalid",
+        ),
     ] {
         let d = modes_fixture(extra);
         assert!(!run(d.path(), &["generate"]).status.success(), "{extra}");
@@ -499,4 +517,45 @@ fn modes_without_css_output_need_no_selector() {
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
+}
+#[test]
+fn mode_names_follow_target_overrides_and_scss_default() {
+    let d = modes_fixture(
+        r##""fg" = { type = "color", value = "#111111", scssDefault = true, targets = { css = "text", scss = "ink", dart = "inkColor" }, modes = { dark = "#eeeeee" } }
+[modes.contrast]
+css = '[data-contrast="more"]'"##,
+    );
+    let p = d.path().join(".despec.toml");
+    let text = fs::read_to_string(&p).unwrap().replace(
+        "modes = { dark = \"#eeeeee\" }",
+        "modes = { dark = \"#eeeeee\", contrast = \"#000000\" }",
+    );
+    fs::write(&p, text).unwrap();
+    let result = run(d.path(), &["generate"]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let read = |ext: &str| fs::read_to_string(d.path().join(format!("out.{ext}"))).unwrap();
+    let css = read("css");
+    assert!(
+        css.contains("\n.dark {\n  --ds-bg-canvas: #0b0d10;\n  --ds-text: #eeeeee;\n"),
+        "{css}"
+    );
+    assert!(
+        css.contains("\n[data-contrast=\"more\"] {\n  --ds-text: #000000;\n}\n"),
+        "{css}"
+    );
+    let scss = read("scss");
+    assert!(scss.contains("$ink: #111111 !default;\n$ink-contrast: #000000 !default;\n$ink-dark: #eeeeee !default;\n"), "{scss}");
+    assert!(read("dart").contains("const Color inkColorDark = Color(0xFFEEEEEE);"));
+    let text = fs::read_to_string(&p)
+        .unwrap()
+        .replace("\"#eeeeee\"", "\"#dddddd\"");
+    fs::write(&p, text).unwrap();
+    let output = run(d.path(), &["check", "--json", "--generated-only"]);
+    assert!(!output.status.success());
+    let v: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(v["diagnostics"][0]["rule_id"], "generated.stale");
 }

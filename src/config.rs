@@ -107,13 +107,9 @@ impl Config {
                 return Err(format!("mode name must be lowercase kebab-case: {name}"));
             }
             match &mode.css {
-                Some(css)
-                    if css.trim().is_empty()
-                        || css.trim() != css
-                        || css.contains(['{', '}', ';', '\n', '\r']) =>
-                {
+                Some(css) if !mode_css(css) => {
                     return Err(format!(
-                        "mode {name} css must be one selector or at-rule without braces, semicolons, or surrounding whitespace"
+                        "mode {name} css must be one selector, or an @media, @supports, or @container condition, without braces, semicolons, comments, or unbalanced quotes and brackets"
                     ));
                 }
                 None if self.outputs.contains_key("css") => {
@@ -159,6 +155,35 @@ pub fn safe_path(p: &std::path::Path) -> bool {
             .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
+/// A mode's `css` is written verbatim before a block, so reject anything that could
+/// end that block early or leave the rest of the file inside a comment or string.
+fn mode_css(css: &str) -> bool {
+    let at_rule_ok = !css.starts_with('@')
+        || ["@media ", "@supports ", "@container "]
+            .iter()
+            .any(|p| css.starts_with(p) && css.len() > p.len());
+    let mut closers = vec![];
+    let mut quote = None;
+    for c in css.chars() {
+        match (quote, c) {
+            (Some(q), c) if c == q => quote = None,
+            (Some(_), _) => (),
+            (None, '"' | '\'') => quote = Some(c),
+            (None, '(') => closers.push(')'),
+            (None, '[') => closers.push(']'),
+            (None, ')' | ']') if closers.pop() != Some(c) => return false,
+            _ => (),
+        }
+    }
+    at_rule_ok
+        && quote.is_none()
+        && closers.is_empty()
+        && !css.trim().is_empty()
+        && css.trim() == css
+        && !css.contains(['{', '}', ';', '\\', '\n', '\r'])
+        && !css.contains("/*")
+        && !css.contains("*/")
+}
 fn one() -> usize {
     1
 }
