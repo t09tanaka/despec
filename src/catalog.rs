@@ -55,6 +55,23 @@ fn color(v: &Value) -> Result<(String, String), String> {
         ),
     ))
 }
+/// `R G B` for a #RRGGBB color, for `rgb(var(--ds-x-rgb) / <alpha>)` in CSS.
+fn rgb_channels(v: &Value) -> Option<String> {
+    let hex = s(v).strip_prefix('#').filter(|h| h.len() == 6)?;
+    let c = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+    Some(format!("{} {} {}", c(0)?, c(2)?, c(4)?))
+}
+/// Extra CSS custom properties a record emits besides its value.
+fn css_extras(p: &str, t: &Value) -> Vec<(String, String)> {
+    if t["rgbChannels"] == true {
+        vec![(
+            format!("{}-rgb", name(p, t, "css")),
+            rgb_channels(&t["value"]).unwrap(),
+        )]
+    } else {
+        vec![]
+    }
+}
 fn camel(p: &str) -> String {
     let mut parts = p.split(['.', '_', '-']);
     let mut out = parts.next().unwrap_or("").to_owned();
@@ -212,6 +229,21 @@ pub fn validate(
             if t.get("scssDefault").is_some_and(|v| !v.is_boolean()) {
                 return Err("scssDefault must be boolean".into());
             }
+            if let Some(r) = t.get("rgbChannels") {
+                if !r.is_boolean() {
+                    return Err("rgbChannels must be boolean".into());
+                }
+                if r == true
+                    && (s(&t["type"]) != "color"
+                        || std::iter::once(&t["value"])
+                            .chain(mode_values(t).map(|(_, v)| v))
+                            .any(|v| rgb_channels(v).is_none()))
+                {
+                    return Err(
+                        "rgbChannels requires a color token whose values are all #RRGGBB".into(),
+                    );
+                }
+            }
             if let Some(targets) = t.get("targets") {
                 let targets = targets.as_object().ok_or("targets must be an object")?;
                 for (target, n) in targets {
@@ -277,7 +309,12 @@ pub fn validate(
                     if target == "dart" {
                         vec![name(p, t, target)]
                     } else {
-                        values(p, t, target).into_iter().map(|(n, _)| n).collect()
+                        let mut names: Vec<String> =
+                            values(p, t, target).into_iter().map(|(n, _)| n).collect();
+                        if target == "css" {
+                            names.extend(css_extras(p, t).into_iter().map(|(n, _)| n));
+                        }
+                        names
                     }
                 })
                 .collect();
@@ -416,8 +453,11 @@ pub fn render(
         if target == "dart" {
             vec![dart(p, t)]
         } else {
-            values(p, t, target)
-                .into_iter()
+            let mut vs = values(p, t, target);
+            if target == "css" {
+                vs.extend(css_extras(p, t));
+            }
+            vs.into_iter()
                 .map(|(n, v)| {
                     if target == "css" {
                         format!("  --ds-{n}: {v};")

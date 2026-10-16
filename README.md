@@ -13,7 +13,7 @@ TOML configuration; all paths resolve relative to its directory.
 
 ```toml
 schema_version = 1
-required_version = "0.3.0"
+required_version = "0.4.0"
 
 [outputs]
 css = "generated/tokens.css"            # one destination
@@ -69,6 +69,13 @@ mode values become separate declarations named with the mode as a suffix:
 one, so Sass and Dart consumers fall back to the default name themselves. Referring to an undeclared mode,
 declaring a mode no token uses, and mode values on other token types are errors;
 suffixed names take part in output name collision checks.
+
+`rgbChannels = true` on a color token also emits its channels for CSS, so Tailwind
+v3 style opacity works in every browser: `--ds-accent-primary-rgb: 18 52 86;` beside
+`--ds-accent-primary`, used as `rgb(var(--ds-accent-primary-rgb) / <alpha-value>)`.
+Mode blocks override the channels too. Every value of the token, mode values
+included, must be #RRGGBB, because an rgba alpha would be lost. Sass and Dart
+outputs are unchanged; `-rgb` names take part in CSS collision checks.
 
 Tokens support `color` (#RRGGBB or rgba), `dimension` (numeric value and unit),
 `number`, `keyword`, `fontFamily`, `shadow` (none or pixel offsetX/offsetY/blur
