@@ -559,3 +559,51 @@ css = '[data-contrast="more"]'"##,
     let v: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(v["diagnostics"][0]["rule_id"], "generated.stale");
 }
+#[test]
+fn rgb_channels_render_beside_css_colors_and_modes() {
+    let d = modes_fixture("");
+    let p = d.path().join(".despec.toml");
+    let text = fs::read_to_string(&p).unwrap().replace(
+        r##""bg.canvas" = { type = "color", value = "#ffffff","##,
+        r##""bg.canvas" = { type = "color", value = "#ffffff", rgbChannels = true,"##,
+    );
+    fs::write(&p, text).unwrap();
+    let result = run(d.path(), &["generate"]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let read = |ext: &str| fs::read_to_string(d.path().join(format!("out.{ext}"))).unwrap();
+    let css = read("css");
+    for block in [
+        ":root {\n  --ds-bg-canvas: #ffffff;\n  --ds-bg-canvas-rgb: 255 255 255;\n",
+        ".dark {\n  --ds-bg-canvas: #0b0d10;\n  --ds-bg-canvas-rgb: 11 13 16;\n",
+        "  :root {\n    --ds-bg-canvas: #000000;\n    --ds-bg-canvas-rgb: 0 0 0;\n  }\n",
+    ] {
+        assert!(css.contains(block), "{block}\n{css}");
+    }
+    assert!(!read("scss").contains("rgb:"));
+    assert!(!read("dart").contains("Rgb"));
+}
+#[test]
+fn rgb_channel_errors() {
+    for extra in [
+        r##""fg" = { type = "color", value = "rgba(0, 0, 0, 0.5)", rgbChannels = true }"##,
+        r##""fg" = { type = "color", value = "#111111", rgbChannels = true, modes = { dark = "rgba(0, 0, 0, 0.5)" } }"##,
+        r##""gap" = { type = "dimension", value = { value = 1, unit = "px" }, rgbChannels = true }"##,
+        r##""fg" = { type = "color", value = "#aéabc", rgbChannels = true }"##,
+        r##""fg" = { type = "color", value = "#111111", rgbChannels = "yes" }"##,
+        r##""fg" = { type = "color", value = "#111111", targets = { css = "ink" }, rgbChannels = true }
+"ink.rgb" = { type = "color", value = "#222222" }"##,
+    ] {
+        let d = modes_fixture(extra);
+        assert!(!run(d.path(), &["generate"]).status.success(), "{extra}");
+        let output = run(d.path(), &["check", "--json", "--generated-only"]);
+        let v: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            v["diagnostics"][0]["rule_id"], "token.invalid",
+            "{extra}\n{v}"
+        );
+    }
+}
