@@ -12,6 +12,15 @@ pub struct Config {
     pub sources: Option<Sources>,
     #[serde(default)]
     pub exceptions: Vec<Exception>,
+    #[serde(default)]
+    pub modes: BTreeMap<String, Mode>,
+}
+/// An alternative set of token values, such as a dark theme. `css` is the selector or
+/// at-rule that activates it; at-rules wrap a `:root` block.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Mode {
+    pub css: Option<String>,
 }
 /// One target may be written to several destinations, for example one CSS file per
 /// front-end project that shares the catalog.
@@ -90,6 +99,29 @@ impl Config {
                         path.display()
                     ));
                 }
+            }
+        }
+        let kebab = regex::Regex::new(r"^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$").unwrap();
+        for (name, mode) in &self.modes {
+            if !kebab.is_match(name) {
+                return Err(format!("mode name must be lowercase kebab-case: {name}"));
+            }
+            match &mode.css {
+                Some(css)
+                    if css.trim().is_empty()
+                        || css.trim() != css
+                        || css.contains(['{', '}', ';', '\n', '\r']) =>
+                {
+                    return Err(format!(
+                        "mode {name} css must be one selector or at-rule without braces, semicolons, or surrounding whitespace"
+                    ));
+                }
+                None if self.outputs.contains_key("css") => {
+                    return Err(format!(
+                        "mode {name} requires css when a css output is configured"
+                    ));
+                }
+                _ => (),
             }
         }
         if let Some(sources) = &self.sources {

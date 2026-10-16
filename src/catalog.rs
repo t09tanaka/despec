@@ -1,5 +1,6 @@
+use crate::config::Mode;
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 fn matches(pattern: &str, s: &str) -> bool {
@@ -78,6 +79,31 @@ fn name(p: &str, t: &Value, target: &str) -> String {
             }
         })
 }
+fn pascal(p: &str) -> String {
+    let c = camel(p);
+    let mut cs = c.chars();
+    cs.next()
+        .map(|f| f.to_uppercase().chain(cs).collect())
+        .unwrap_or_default()
+}
+fn mode_values(t: &Value) -> impl Iterator<Item = (&String, &Value)> {
+    t.get("modes")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+}
+/// The record a mode renders. CSS reuses the default name and overrides it through the
+/// cascade; Sass and Dart have no cascade, so their names gain the mode as a suffix.
+fn mode_token(p: &str, t: &Value, mode: &str, v: &Value) -> Value {
+    let mut m = t.clone();
+    m["value"] = v.clone();
+    m["targets"] = json!({
+        "css": name(p, t, "css"),
+        "scss": format!("{}-{mode}", name(p, t, "scss")),
+        "dart": format!("{}{}", name(p, t, "dart"), pascal(mode)),
+    });
+    m
+}
 const RESERVED: &str = "abstract as assert async await base bool break case catch class const continue covariant default deferred do double dynamic else enum export extends extension external factory false final finally for get hide if implements import in int interface is late library mixin new never null num of on operator part required rethrow return sealed set show static super switch sync this throw true try type typedef var void when with yield";
 fn properties(v: &Value) -> Vec<&'static str> {
     ["fontSize", "fontWeight", "lineHeight", "letterSpacing"]
@@ -142,7 +168,39 @@ fn values(p: &str, t: &Value, target: &str) -> Vec<(String, String)> {
     };
     vec![(n, val)]
 }
-pub fn validate(tokens: &BTreeMap<String, Value>) -> Result<(), String> {
+fn valid_value(ty: &str, v: &Value) -> Result<bool, String> {
+    Ok(match ty {
+        "color" => {
+            color(v)?;
+            true
+        }
+        "dimension" => dimension(v),
+        "number" => number(v),
+        "keyword" => matches(r"^[a-zA-Z][a-zA-Z0-9-]*$", s(v)),
+        "fontFamily" => !s(v).trim().is_empty() && !s(v).contains(['\n', '\r', ';', '{', '}']),
+        "shadow" => {
+            v == "none"
+                || (v.is_object()
+                    && ["offsetX", "offsetY", "blur"]
+                        .iter()
+                        .all(|k| dimension(&v[k]) && v[k]["unit"] == "px")
+                    && color(&v["color"]).is_ok())
+        }
+        "typography" => {
+            v.is_object()
+                && dimension(&v["fontSize"])
+                && number(&v["lineHeight"])
+                && v.get("fontWeight").is_none_or(number)
+                && v.get("letterSpacing")
+                    .is_none_or(|v| number(v) || dimension(v))
+        }
+        _ => false,
+    })
+}
+pub fn validate(
+    tokens: &BTreeMap<String, Value>,
+    modes: &BTreeMap<String, Mode>,
+) -> Result<(), String> {
     for (p, t) in tokens {
         let valid = (|| -> Result<(), String> {
             if !matches(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$", p) {
@@ -174,51 +232,55 @@ pub fn validate(tokens: &BTreeMap<String, Value>) -> Result<(), String> {
             if RESERVED.split_whitespace().any(|r| r == name(p, t, "dart")) {
                 return Err("reserved Dart identifier".into());
             }
-            let v = &t["value"];
-            let valid = match s(&t["type"]) {
-                "color" => {
-                    color(v)?;
-                    true
+            let ty = s(&t["type"]);
+            if !valid_value(ty, &t["value"])? {
+                return Err(format!("invalid {ty} value"));
+            }
+            if let Some(ms) = t.get("modes") {
+                let ms = ms.as_object().ok_or("modes must be an object")?;
+                if ms.is_empty() {
+                    return Err("modes must not be empty".into());
                 }
-                "dimension" => dimension(v),
-                "number" => number(v),
-                "keyword" => matches(r"^[a-zA-Z][a-zA-Z0-9-]*$", s(v)),
-                "fontFamily" => {
-                    !s(v).trim().is_empty() && !s(v).contains(['\n', '\r', ';', '{', '}'])
+                if !["color", "shadow"].contains(&ty) {
+                    return Err("only color and shadow tokens can vary by mode".into());
                 }
-                "shadow" => {
-                    v == "none"
-                        || (v.is_object()
-                            && ["offsetX", "offsetY", "blur"]
-                                .iter()
-                                .all(|k| dimension(&v[k]) && v[k]["unit"] == "px")
-                            && color(&v["color"]).is_ok())
+                for (m, v) in ms {
+                    if !modes.contains_key(m) {
+                        return Err(format!("mode {m} is not declared"));
+                    }
+                    if !valid_value(ty, v)? {
+                        return Err(format!("invalid {ty} value for mode {m}"));
+                    }
                 }
-                "typography" => {
-                    v.is_object()
-                        && dimension(&v["fontSize"])
-                        && number(&v["lineHeight"])
-                        && v.get("fontWeight").is_none_or(number)
-                        && v.get("letterSpacing")
-                            .is_none_or(|v| number(v) || dimension(v))
-                }
-                _ => false,
-            };
-            if !valid {
-                return Err(format!("invalid {} value", s(&t["type"])));
             }
             Ok(())
         })();
         valid.map_err(|e| format!("Invalid token {p}: {e}"))?;
     }
+    for m in modes.keys() {
+        if !tokens.values().any(|t| t["modes"].get(m).is_some()) {
+            return Err(format!(
+                "mode {m} is declared but no token sets a value for it"
+            ));
+        }
+    }
     let mut seen = BTreeMap::new();
     for (p, t) in tokens {
         for target in ["css", "scss", "dart"] {
-            let names = if target == "dart" {
-                vec![name(p, t, target)]
-            } else {
-                values(p, t, target).into_iter().map(|(n, _)| n).collect()
-            };
+            let mut records = vec![t.clone()];
+            if target != "css" {
+                records.extend(mode_values(t).map(|(m, v)| mode_token(p, t, m, v)));
+            }
+            let names: Vec<String> = records
+                .iter()
+                .flat_map(|t| {
+                    if target == "dart" {
+                        vec![name(p, t, target)]
+                    } else {
+                        values(p, t, target).into_iter().map(|(n, _)| n).collect()
+                    }
+                })
+                .collect();
             for n in names {
                 if let Some(old) = seen.insert(format!("{target}:{n}"), p) {
                     return Err(format!(
@@ -338,10 +400,11 @@ fn dart(p: &str, t: &Value) -> String {
 }
 pub fn render(
     tokens: &BTreeMap<String, Value>,
+    modes: &BTreeMap<String, Mode>,
     target: &str,
     warning: &str,
 ) -> Result<String, String> {
-    validate(tokens)?;
+    validate(tokens, modes)?;
     // ASCII token alphabet; punctuation ordered as in the legacy locale collation.
     let mut entries: Vec<_> = tokens.iter().collect();
     entries.sort_by_key(|(p, _)| {
@@ -349,35 +412,68 @@ pub fn render(
             .replace('-', "\u{2}")
             .replace('.', "\u{3}")
     });
+    let declare = |p: &str, t: &Value| -> Vec<String> {
+        if target == "dart" {
+            vec![dart(p, t)]
+        } else {
+            values(p, t, target)
+                .into_iter()
+                .map(|(n, v)| {
+                    if target == "css" {
+                        format!("  --ds-{n}: {v};")
+                    } else {
+                        format!(
+                            "${n}: {v}{};",
+                            if t["scssDefault"] == true {
+                                " !default"
+                            } else {
+                                ""
+                            }
+                        )
+                    }
+                })
+                .collect()
+        }
+    };
     let declarations: Vec<String> = entries
-        .into_iter()
+        .iter()
         .flat_map(|(p, t)| {
-            if target == "dart" {
-                vec![dart(p, t)]
-            } else {
-                values(p, t, target)
-                    .into_iter()
-                    .map(|(n, v)| {
-                        if target == "css" {
-                            format!("  --ds-{n}: {v};")
-                        } else {
-                            format!(
-                                "${n}: {v}{};",
-                                if t["scssDefault"] == true {
-                                    " !default"
-                                } else {
-                                    ""
-                                }
-                            )
-                        }
-                    })
-                    .collect()
+            let mut out = declare(p, t);
+            if target != "css" {
+                for (m, v) in mode_values(t) {
+                    out.extend(declare(p, &mode_token(p, t, m, v)));
+                }
             }
+            out
         })
         .collect();
     let body = declarations.join("\n");
     Ok(match target {
-        "css" => format!("/* {warning} */\n\n:root {{\n{body}\n}}\n"),
+        "css" => {
+            let mut out = format!("/* {warning} */\n\n:root {{\n{body}\n}}\n");
+            for (m, mode) in modes {
+                let css = mode
+                    .css
+                    .as_deref()
+                    .ok_or_else(|| format!("mode {m} requires css for the css output"))?;
+                let lines: Vec<String> = entries
+                    .iter()
+                    .filter_map(|(p, t)| {
+                        t["modes"]
+                            .get(m)
+                            .map(|v| declare(p, &mode_token(p, t, m, v)))
+                    })
+                    .flatten()
+                    .collect();
+                if css.starts_with('@') {
+                    let lines: Vec<String> = lines.iter().map(|l| format!("  {l}")).collect();
+                    out += &format!("\n{css} {{\n  :root {{\n{}\n  }}\n}}\n", lines.join("\n"));
+                } else {
+                    out += &format!("\n{css} {{\n{}\n}}\n", lines.join("\n"));
+                }
+            }
+            out
+        }
         "scss" => format!("// {warning}\n\n{body}\n"),
         "dart" => format!(
             "// {warning}\n// ignore_for_file: prefer_single_quotes, lines_longer_than_80_chars\n\nimport 'package:flutter/material.dart';\n\n{body}\n"
