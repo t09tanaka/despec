@@ -57,7 +57,9 @@ fn color(v: &Value) -> Result<(String, String), String> {
 }
 /// `R G B` for a #RRGGBB color, for `rgb(var(--ds-x-rgb) / <alpha>)` in CSS.
 fn rgb_channels(v: &Value) -> Option<String> {
-    let hex = s(v).strip_prefix('#').filter(|h| h.len() == 6)?;
+    let hex = s(v)
+        .strip_prefix('#')
+        .filter(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()))?;
     let c = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
     Some(format!("{} {} {}", c(0)?, c(2)?, c(4)?))
 }

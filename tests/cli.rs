@@ -592,6 +592,7 @@ fn rgb_channel_errors() {
         r##""fg" = { type = "color", value = "rgba(0, 0, 0, 0.5)", rgbChannels = true }"##,
         r##""fg" = { type = "color", value = "#111111", rgbChannels = true, modes = { dark = "rgba(0, 0, 0, 0.5)" } }"##,
         r##""gap" = { type = "dimension", value = { value = 1, unit = "px" }, rgbChannels = true }"##,
+        r##""fg" = { type = "color", value = "#aéabc", rgbChannels = true }"##,
         r##""fg" = { type = "color", value = "#111111", rgbChannels = "yes" }"##,
         r##""fg" = { type = "color", value = "#111111", targets = { css = "ink" }, rgbChannels = true }
 "ink.rgb" = { type = "color", value = "#222222" }"##,
