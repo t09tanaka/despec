@@ -14,6 +14,18 @@ pub struct Config {
     pub exceptions: Vec<Exception>,
     #[serde(default)]
     pub modes: BTreeMap<String, Mode>,
+    /// Opt-in source rules. Colors are always checked; each dimension rule runs only
+    /// when its table is present.
+    #[serde(default)]
+    pub rules: BTreeMap<String, RuleConfig>,
+}
+/// Settings for one source rule: values to accept and class names to forbid.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuleConfig {
+    pub allow: Option<Vec<String>>,
+    #[serde(default)]
+    pub classes: Vec<String>,
 }
 /// An alternative set of token values, such as a dark theme. `css` is the selector or
 /// at-rule that activates it; at-rules wrap a `:root` block.
@@ -44,6 +56,8 @@ pub struct Sources {
     pub include: Vec<String>,
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// Recorded counts of existing hard-coded values; see `despec baseline`.
+    pub baseline: Option<PathBuf>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -65,6 +79,12 @@ impl Config {
     }
     pub fn is_output(&self, p: &std::path::Path) -> bool {
         self.output_paths().any(|(_, o)| o == p)
+    }
+    pub fn baseline(&self) -> Option<&PathBuf> {
+        self.sources.as_ref().and_then(|s| s.baseline.as_ref())
+    }
+    pub fn is_baseline(&self, p: &std::path::Path) -> bool {
+        self.baseline().is_some_and(|b| b == p)
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
@@ -134,9 +154,56 @@ impl Config {
                 }
                 globset::Glob::new(pattern).map_err(|e| e.to_string())?;
             }
+            if let Some(baseline) = &sources.baseline {
+                if !safe_path(baseline) {
+                    return Err(format!(
+                        "sources.baseline must be a relative path without parent traversal: {}",
+                        baseline.display()
+                    ));
+                }
+                if self.is_output(baseline) {
+                    return Err("sources.baseline must not be an output".into());
+                }
+            }
+        }
+        for (id, rule) in &self.rules {
+            if id == "color" {
+                if rule.allow.is_some() {
+                    return Err(
+                        "rules.color accepts only classes; colors are always checked".into(),
+                    );
+                }
+            } else if !crate::rules::DIMENSION_RULES.contains(&id.as_str()) {
+                return Err(format!(
+                    "unknown rule {id}; expected color or one of {}",
+                    crate::rules::DIMENSION_RULES.join(", ")
+                ));
+            }
+            if rule.allow.iter().flatten().any(|v| v.trim().is_empty()) {
+                return Err(format!("rules.{id}.allow entries must not be empty"));
+            }
+            for class in &rule.classes {
+                if class.is_empty() {
+                    return Err(format!("rules.{id}.classes entries must not be empty"));
+                }
+                globset::Glob::new(class).map_err(|e| format!("rules.{id}.classes: {e}"))?;
+            }
         }
         for e in &self.exceptions {
-            if e.rule != "source.color-literal"
+            if let Some(rule) = e
+                .rule
+                .strip_prefix("source.")
+                .and_then(|r| r.strip_suffix("-literal"))
+                && rule != "color"
+                && crate::rules::DIMENSION_RULES.contains(&rule)
+                && !self.rules.contains_key(rule)
+            {
+                return Err(format!(
+                    "exception for {} requires a [rules.{rule}] table",
+                    e.rule
+                ));
+            }
+            if !literal_rule(&e.rule)
                 || e.reason.trim().is_empty()
                 || e.literal.is_empty()
                 || !safe_path(std::path::Path::new(&e.path))
@@ -148,6 +215,12 @@ impl Config {
         }
         Ok(())
     }
+}
+/// Whether `rule` is `source.color-literal` or a dimension rule's literal ID.
+pub fn literal_rule(rule: &str) -> bool {
+    rule.strip_prefix("source.")
+        .and_then(|r| r.strip_suffix("-literal"))
+        .is_some_and(|r| r == "color" || crate::rules::DIMENSION_RULES.contains(&r))
 }
 pub fn safe_path(p: &std::path::Path) -> bool {
     !p.as_os_str().is_empty()

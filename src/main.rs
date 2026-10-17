@@ -23,6 +23,8 @@ enum Command {
         #[arg(long)]
         generated_only: bool,
     },
+    /// Record the remaining hard-coded values, or lower the recorded counts.
+    Baseline,
 }
 const WARNING: &str = "This file is generated from .despec.toml. Run despec generate.";
 const INITIAL: &str = r##"schema_version = 1
@@ -72,19 +74,7 @@ fn run(cli: &Cli) -> Result<(usize, Vec<Diagnostic>), (String, String)> {
     let mut seen = std::collections::BTreeSet::new();
     for (target, p) in c.output_paths() {
         let path = root.join(p);
-        let mut ancestor = path.as_path();
-        while !ancestor.exists() {
-            ancestor = ancestor
-                .parent()
-                .ok_or_else(|| fail("invalid output path".into()))?;
-        }
-        let resolved = fs::canonicalize(ancestor).map_err(|e| fail(e.to_string()))?;
-        if !resolved.starts_with(&root) {
-            return Err(fail(
-                "output symlink escapes configuration directory".into(),
-            ));
-        }
-        let resolved = resolved.join(path.strip_prefix(ancestor).unwrap());
+        let resolved = resolve(&root, &path).map_err(|e| fail(format!("output {e}")))?;
         if resolved == config_path || !seen.insert(resolved) {
             return Err(fail(
                 "output aliases another output or the configuration".into(),
@@ -96,6 +86,34 @@ fn run(cli: &Cli) -> Result<(usize, Vec<Diagnostic>), (String, String)> {
             despec::catalog::render(&c.tokens, &c.modes, target, WARNING)
                 .map_err(|e| ("token.invalid".into(), e))?,
         ));
+    }
+    // Only commands that read or write the baseline resolve it.
+    let uses_baseline = matches!(
+        cli.command,
+        Command::Baseline
+            | Command::Check {
+                generated_only: false,
+                ..
+            }
+    );
+    let baseline = match c.baseline().filter(|_| uses_baseline) {
+        Some(p) => {
+            let path = root.join(p);
+            let resolved = resolve(&root, &path).map_err(|e| fail(format!("baseline {e}")))?;
+            if resolved == config_path || seen.contains(&resolved) {
+                return Err(fail(
+                    "sources.baseline aliases an output or the configuration".into(),
+                ));
+            }
+            Some((p.to_string_lossy().into_owned(), path))
+        }
+        None => None,
+    };
+    if matches!(cli.command, Command::Baseline) {
+        let Some((name, path)) = baseline else {
+            return Err(fail("despec baseline requires [sources] baseline".into()));
+        };
+        return write_baseline(&root, &c, &name, &path);
     }
     if let Command::Check { generated_only, .. } = cli.command {
         let mut ds = vec![];
@@ -120,7 +138,18 @@ fn run(cli: &Cli) -> Result<(usize, Vec<Diagnostic>), (String, String)> {
             let (n, scan) =
                 despec::scan::scan(&root, &c).map_err(|e| ("source.scan-error".into(), e))?;
             count = n;
-            ds.extend(scan)
+            match &baseline {
+                None => ds.extend(scan),
+                Some((name, path)) => match read_baseline(name, path)? {
+                    Err(d) => {
+                        ds.extend(scan);
+                        ds.push(d)
+                    }
+                    // An incomplete scan would make every entry look stale.
+                    Ok(_) if scan.iter().any(|d| d.rule_id == "source.no-files") => ds.extend(scan),
+                    Ok(recorded) => ds.extend(despec::baseline::apply(scan, &recorded, name)),
+                },
+            }
         }
         return Ok((count, ds));
     }
@@ -139,6 +168,102 @@ fn run(cli: &Cli) -> Result<(usize, Vec<Diagnostic>), (String, String)> {
             .map_err(|e| ("io.error".into(), e.to_string()))?;
     }
     Ok((0, vec![]))
+}
+/// Resolves `path` through its nearest existing ancestor, which must stay inside
+/// `root` so that a symlink cannot redirect a write elsewhere.
+fn resolve(root: &Path, path: &Path) -> Result<PathBuf, String> {
+    let mut ancestor = path;
+    while !ancestor.exists() {
+        ancestor = ancestor.parent().ok_or("path is invalid")?;
+    }
+    let resolved = fs::canonicalize(ancestor).map_err(|e| e.to_string())?;
+    if !resolved.starts_with(root) {
+        return Err("symlink escapes configuration directory".into());
+    }
+    Ok(resolved.join(path.strip_prefix(ancestor).unwrap()))
+}
+type Failure = (String, String);
+/// Reads the baseline file; `Ok(Err(_))` is a `baseline.invalid` diagnostic.
+fn read_baseline(
+    name: &str,
+    path: &Path,
+) -> Result<Result<despec::baseline::Counts, Diagnostic>, Failure> {
+    let invalid = |m: &str| Ok(Err(Diagnostic::new("baseline.invalid", name, m)));
+    match fs::read_to_string(path) {
+        Ok(text) => match despec::baseline::parse(&text) {
+            Ok(counts) => Ok(Ok(counts)),
+            Err(e) => invalid(&e),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            invalid("baseline file is missing; run despec baseline")
+        }
+        Err(e) => Err(("io.error".into(), e.to_string())),
+    }
+}
+/// Creates the baseline from the current findings, or lowers it. Nothing is written
+/// while any count would grow or another source diagnostic remains.
+fn write_baseline(
+    root: &Path,
+    c: &Config,
+    name: &str,
+    path: &Path,
+) -> Result<(usize, Vec<Diagnostic>), Failure> {
+    use despec::baseline;
+    let (n, scan) = despec::scan::scan(root, c).map_err(|e| ("source.scan-error".into(), e))?;
+    if scan.iter().any(|d| !baseline::is_literal(d)) {
+        let mut ds: Vec<_> = scan
+            .into_iter()
+            .filter(|d| !baseline::is_literal(d))
+            .collect();
+        ds.push(Diagnostic::new(
+            "baseline.invalid",
+            name,
+            "baseline not written; fix the other source diagnostics first",
+        ));
+        return Ok((n, ds));
+    }
+    let found = baseline::count(&scan);
+    let previous = match fs::read_to_string(path) {
+        Ok(text) => {
+            let recorded = match baseline::parse(&text) {
+                Ok(recorded) => recorded,
+                Err(e) => return Ok((n, vec![Diagnostic::new("baseline.invalid", name, &e)])),
+            };
+            let increases = baseline::increases(&found, &recorded);
+            if !increases.is_empty() {
+                let ds = increases
+                    .into_iter()
+                    .map(|((rule, source, literal), found, recorded)| {
+                        let mut d = Diagnostic::new(
+                            "baseline.increase",
+                            source,
+                            &format!(
+                                "{rule} {literal}: found {found}, baseline {recorded}; baseline not written. Remove the new literal or add an [[exceptions]] entry with a reason"
+                            ),
+                        );
+                        d.literal = Some(literal.clone());
+                        d
+                    })
+                    .collect();
+                return Ok((n, ds));
+            }
+            Some(text)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(("io.error".into(), e.to_string())),
+    };
+    let text = baseline::render(&found);
+    // A CRLF checkout of an unchanged file is left alone too.
+    if previous.is_some_and(|p| p.replace("\r\n", "\n") == text) {
+        return Ok((n, vec![]));
+    }
+    let io = |e: std::io::Error| ("io.error".to_string(), e.to_string());
+    let parent = path.parent().unwrap();
+    fs::create_dir_all(parent).map_err(io)?;
+    let mut file = tempfile::NamedTempFile::new_in(parent).map_err(io)?;
+    file.write_all(text.as_bytes()).map_err(io)?;
+    file.persist(path).map_err(|e| io(e.error))?;
+    Ok((n, vec![]))
 }
 fn main() {
     let cli = Cli::try_parse().unwrap_or_else(|e| {
