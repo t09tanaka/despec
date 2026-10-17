@@ -579,10 +579,11 @@ fn keyword_colors_with_classes_and_exceptions() {
 #[test]
 fn hex_after_a_word_or_url_character_is_not_a_color() {
     let md = concat!(
-        "See issue/#271 and https://example.com/page#abc or ?x=#fff&#123;\n",
+        "See issue/#271 and https://example.com/page#abc or &#123;\n",
         "a_#abc b#def shadow-[0_1px_#000]\n",
         "a { color: #fff; background:#abc; }\n",
         "<p style=\"color:#123\" class=\"bg-[#456]\">#789</p>\n",
+        "<rect fill=#fff :fill=\"isDark?#eee:#000\" />\n",
     );
     assert_eq!(
         findings("a.html", md, ""),
@@ -593,6 +594,9 @@ fn hex_after_a_word_or_url_character_is_not_a_color() {
             f("color", 4, "#123"),
             f("color", 4, "#456"),
             f("color", 4, "#789"),
+            f("color", 5, "#fff"),
+            f("color", 5, "#eee"),
+            f("color", 5, "#000"),
         ]
     );
 }

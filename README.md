@@ -123,11 +123,12 @@ and CSS named colors such as `black` when `[rules.color]` sets `keywords = true`
 C-style, line, and HTML comments are ignored; quoted strings are scanned.
 Standalone CSS ID selectors such as `#abcdef {` are ignored; complex selectors
 can still produce false positives. A `#` directly after a letter, digit, `_`,
-`/`, `&`, `?`, or `=` is not a color, so `issue/#271`, `page#abc`, `?x=#fff`,
-and `&#123;` are skipped; inside a Tailwind arbitrary value such as
-`shadow-[0_1px_#000]` the `_` stands for a space and the color still counts.
-This is a breaking change in 0.6.0: earlier versions reported these, and an
-unquoted attribute such as `fill=#fff` is now skipped too. Numeric color expressions
+`/`, or `&` is not a color, so `issue/#271`, `page#abc`, and `&#123;` are
+skipped; inside a Tailwind arbitrary value such as `shadow-[0_1px_#000]` the `_`
+stands for a space and the color still counts. A `#` after `?` or `=` is still a
+color, so `isDark?#fff:#000` and `fill=#fff` are reported, and so is a query
+string such as `?x=#fff`. This is a breaking change in 0.6.0: earlier versions
+reported the skipped forms. Numeric color expressions
 split over lines, language interpolation, aliases, and computed
 colors are not fully analyzed. Keep existing language-specific AST guards.
 Configure a meaningful explicit scope; generated files are skipped. Each include is walked from its fixed directory prefix to avoid traversing unrelated trees. Symlinks
