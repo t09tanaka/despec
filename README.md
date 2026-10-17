@@ -23,6 +23,7 @@ dart = "generated/tokens.dart"
 [sources]
 include = ["src/**/*.css", "src/**/*.scss", "lib/**/*.dart"]
 exclude = ["src/vendor/**"]
+baseline = "despec-baseline.json" # optional: existing hard-coded values, see below
 
 [modes.dark]
 css = ".dark" # or '[data-theme="dark"]', or "@media (prefers-color-scheme: dark)"
@@ -112,7 +113,8 @@ Exit status is 0 for success, 1 for findings/configuration/I/O failures, and 2
 for invalid CLI syntax. Rule IDs are `config.invalid`, `token.invalid`,
 `generated.stale`, `source.color-literal`, `source.<rule>-literal` for each
 dimension rule below, `source.no-files`,
-`source.scan-error`, `exception.unused`, `cli.invalid`, and `io.error`.
+`source.scan-error`, `exception.unused`, `baseline.increase`, `baseline.stale`,
+`baseline.invalid`, `cli.invalid`, and `io.error`.
 
 Source policies are deliberately lexical, not an AST analyzer. They detect
 hex colors, numeric rgb/rgba/hsl/hsla functions, and Dart Color(0xAARRGGBB).
@@ -124,8 +126,56 @@ colors are not fully analyzed. Keep existing language-specific AST guards.
 Configure a meaningful explicit scope; generated files are skipped. Each include is walked from its fixed directory prefix to avoid traversing unrelated trees. Symlinks
 are not followed. `.git`, `node_modules`, and `target` trees are excluded.
 Exceptions require a reason and exact path/literal; counts must match exactly
-(default 1). Unused or surplus exceptions fail checks. Do not automatically
-baseline every finding to make a project pass.
+(default 1). Unused or surplus exceptions fail checks. Do not turn every finding
+into an exception to make a project pass; record existing ones in a baseline
+instead.
+
+### Baseline
+
+A project adopting despec may already contain hundreds of hard-coded values. A
+baseline records that existing debt so it can only shrink: `[sources] baseline`
+names a JSON file (a relative path inside the configuration directory, not an
+output or the configuration) that is never scanned. It records how many
+`source.*-literal` findings remain per rule, path, and literal after exceptions
+are applied, so an exception always wins over the baseline. A new hard-coded
+value that is genuinely needed goes into `[[exceptions]]` with a reason, never
+into the baseline.
+
+```json
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "rule": "source.spacing-literal",
+      "path": "src/card.css",
+      "literal": "12px",
+      "count": 3
+    }
+  ]
+}
+```
+
+Entries are sorted by rule, path, and literal, each count is at least 1, and the
+file ends with a newline. Line numbers are not recorded, so moving code does not
+invalidate the file.
+
+`despec baseline` creates the file from the current findings when it is absent.
+When it exists, the file is rewritten only if no count grows and no new
+(rule, path, literal) appears: lowered counts are written and entries that reach
+zero are removed; an unchanged result leaves the file untouched. Any growth
+writes nothing and reports every grown entry as `baseline.increase` (exit 1).
+It also writes nothing while other source diagnostics remain, such as
+`source.no-files` or `exception.unused`, because an incomplete scan would
+otherwise erase entries. Without `[sources] baseline` it fails with
+`config.invalid`.
+
+`despec check` compares the findings with the baseline. Findings of an entry at
+or below its count are not reported. When an entry exceeds its count, all of its
+findings are reported with `(found N, baseline M)` appended. An entry whose count
+dropped, including to zero, fails as `baseline.stale` at the baseline path until
+`despec baseline` lowers it. A missing or malformed file, or another
+`schema_version`, is `baseline.invalid`. When the scan reports `source.no-files`,
+the comparison is skipped. `check --generated-only` ignores the baseline.
 
 ### Dimension rules
 

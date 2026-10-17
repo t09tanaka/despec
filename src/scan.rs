@@ -80,7 +80,10 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
                 if entry.file_type().is_symlink() {
                     return Err(format!("selected source is symlink: {}", p.display()));
                 }
-                if entry.file_type().is_file() && !c.is_output(p) && p != Path::new(".despec.toml")
+                if entry.file_type().is_file()
+                    && !c.is_output(p)
+                    && !c.is_baseline(p)
+                    && p != Path::new(".despec.toml")
                 {
                     paths.insert(p.to_owned());
                     selected += 1;
@@ -103,7 +106,7 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
     let mut used = vec![0usize; c.exceptions.len()];
     let mut count = 0;
     for p in paths {
-        if c.is_output(&p) || p == Path::new(".despec.toml") {
+        if c.is_output(&p) || c.is_baseline(&p) || p == Path::new(".despec.toml") {
             continue;
         }
         count += 1;

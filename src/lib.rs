@@ -1,3 +1,4 @@
+pub mod baseline;
 pub mod catalog;
 pub mod config;
 pub mod rules;

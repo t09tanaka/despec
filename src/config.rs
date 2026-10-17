@@ -56,6 +56,8 @@ pub struct Sources {
     pub include: Vec<String>,
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// Recorded counts of existing hard-coded values; see `despec baseline`.
+    pub baseline: Option<PathBuf>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -77,6 +79,12 @@ impl Config {
     }
     pub fn is_output(&self, p: &std::path::Path) -> bool {
         self.output_paths().any(|(_, o)| o == p)
+    }
+    pub fn baseline(&self) -> Option<&PathBuf> {
+        self.sources.as_ref().and_then(|s| s.baseline.as_ref())
+    }
+    pub fn is_baseline(&self, p: &std::path::Path) -> bool {
+        self.baseline().is_some_and(|b| b == p)
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
@@ -145,6 +153,17 @@ impl Config {
                     return Err("source patterns must be relative without parent traversal".into());
                 }
                 globset::Glob::new(pattern).map_err(|e| e.to_string())?;
+            }
+            if let Some(baseline) = &sources.baseline {
+                if !safe_path(baseline) {
+                    return Err(format!(
+                        "sources.baseline must be a relative path without parent traversal: {}",
+                        baseline.display()
+                    ));
+                }
+                if self.is_output(baseline) {
+                    return Err("sources.baseline must not be an output".into());
+                }
             }
         }
         for (id, rule) in &self.rules {
