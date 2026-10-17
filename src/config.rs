@@ -180,7 +180,7 @@ impl Config {
             if id == "color" {
                 if rule.allow.is_some() {
                     return Err(
-                        "rules.color accepts only classes and keywords; colors are always checked"
+                        "rules.color accepts only classes, keywords, and overrides; colors are always checked"
                             .into(),
                     );
                 }
@@ -270,7 +270,7 @@ pub fn check_rule_tables(input: &str) -> Result<(), String> {
             && table.iter().all(|(key, _)| key == "overrides")
         {
             return Err(format!(
-                "rules.{id}.overrides requires a [rules.{id}] table"
+                "rules.{id}.overrides requires the rule's own table: a [rules.{id}] header, an inline {id} = {{ ... }} under [rules], or another rules.{id} key"
             ));
         }
     }

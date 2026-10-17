@@ -250,7 +250,7 @@ fn override_configuration_errors() {
     );
     assert_eq!(
         check(&d)["diagnostics"][0]["message"],
-        "rules.radius.overrides requires a [rules.radius] table"
+        "rules.radius.overrides requires the rule's own table: a [rules.radius] header, an inline radius = { ... } under [rules], or another rules.radius key"
     );
     // A table written after its overrides, as dotted keys, or inline still counts.
     for extra in [
@@ -306,4 +306,84 @@ fn overrides_with_exceptions_and_baseline() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("override.unused"), "{stderr}");
     assert!(stderr.contains("baseline not written"), "{stderr}");
+}
+
+#[test]
+fn overrides_apply_to_every_detection_path() {
+    let admin =
+        "[[rules.radius.overrides]]\npaths = [\"apps/admin/**\"]\nclasses = [\"rounded-xl\"]\n";
+    let radius = format!("[rules.radius]\nclasses = [\"rounded-lg\"]\n{admin}");
+    // `classes` in `@apply`, in a stylesheet and in a `<style>` block.
+    for (file, source) in [
+        ("a.css", ".a { @apply rounded-lg rounded-xl; }\n"),
+        (
+            "a.html",
+            "<style>.a { @apply rounded-lg rounded-xl }</style>\n",
+        ),
+    ] {
+        let d = project(&["admin", "web"], file, source, &radius);
+        assert_eq!(
+            findings(&check(&d)),
+            vec![
+                f("radius", "admin", file, "rounded-xl"),
+                f("radius", "web", file, "rounded-lg"),
+            ],
+            "{file}"
+        );
+    }
+    // `allow` for a Tailwind arbitrary value and for a Dart argument.
+    for (rule, file, source, allow, literal) in [
+        (
+            "spacing",
+            "a.html",
+            "<p class=\"p-[12px]\"></p>\n",
+            "12px",
+            "p-[12px]",
+        ),
+        (
+            "gap",
+            "a.dart",
+            "const box = SizedBox(width: 8);\n",
+            "8",
+            "8",
+        ),
+    ] {
+        let extra = format!(
+            "[rules.{rule}]\n[[rules.{rule}.overrides]]\npaths = [\"apps/admin/**\"]\nallow = [\"{allow}\"]\n"
+        );
+        let d = project(&["admin", "web"], file, source, &extra);
+        assert_eq!(
+            findings(&check(&d)),
+            vec![f(rule, "web", file, literal)],
+            "{file}"
+        );
+    }
+    // `keywords` for a markup attribute and a Tailwind arbitrary value.
+    let d = project(
+        &["admin", "web"],
+        "a.html",
+        "<rect fill=\"white\"></rect><p class=\"bg-[white]\"></p>\n",
+        "[rules.color]\n[[rules.color.overrides]]\npaths = [\"apps/admin/**\"]\nkeywords = true\n",
+    );
+    assert_eq!(
+        findings(&check(&d)),
+        vec![
+            f("color", "admin", "a.html", "white"),
+            f("color", "admin", "a.html", "bg-[white]"),
+        ]
+    );
+    // The overrides of an inline rule table apply too; dotted keys that only
+    // name overrides leave the table implied and are rejected.
+    let inline = "[rules]\nradius = { classes = [\"rounded-lg\"], overrides = [{ paths = [\"apps/admin/**\"], classes = [\"rounded-xl\"] }] }\n";
+    let d = project(&["admin", "web"], "a.html", MARKUP, inline);
+    assert_eq!(
+        findings(&check(&d)),
+        vec![
+            f("radius", "admin", "a.html", "rounded-xl"),
+            f("radius", "web", "a.html", "rounded-lg"),
+        ]
+    );
+    let dotted = "[rules]\nradius.overrides = [{ paths = [\"apps/admin/**\"], classes = [\"rounded-xl\"] }]\n";
+    let d = project(&["admin", "web"], "a.html", MARKUP, dotted);
+    assert_eq!(check(&d)["diagnostics"][0]["rule_id"], "config.invalid");
 }

@@ -338,6 +338,26 @@ only files an earlier override already takes, is reported after the scan as
 `override.unused` at `.despec.toml`, like `exception.unused`; while it remains,
 `despec baseline` writes nothing.
 
+### Breaking changes in 0.6.0
+
+Three detection changes alter the counts of an existing project:
+
+1. A `#` directly after a letter, digit, `_`, `/`, or `&` is no longer a color
+   (see the source policies above), so fewer colors are reported.
+2. A word ending in `:` is no longer a class, so an unquoted key such as
+   `{ rounded: on }` no longer matches `classes`, and fewer classes are reported.
+3. `classes` now matches the arguments of `@apply`: in CSS, Sass, and Less files,
+   where it matched nothing before, and in markup and other files, where
+   `@apply rounded-lg;` now matches `rounded-lg`, so more classes are reported.
+   SCSS files, which were split into words like markup before, now match only
+   `@apply` arguments too.
+
+In a project with a baseline, run `despec baseline` after upgrading: lowered
+counts make `despec check` fail with `baseline.stale` until the baseline is
+lowered. New findings, which the third change can add, are never taken into an
+existing baseline, so when there are any, delete the baseline and run
+`despec baseline` again to record it from scratch.
+
 ## Development and releases
 
 Run `cargo fmt --check`, `cargo test --locked`, and
