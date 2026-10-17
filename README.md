@@ -157,8 +157,8 @@ that lower different entries rarely conflict. An empty baseline is
 `"entries": []`. Entries are sorted by rule, path, and literal, each count is at
 least 1, and the file ends with a newline. The file is read as ordinary JSON, so
 the multi-line layout written before 0.6.0 (one key per line) is still accepted;
-`despec baseline` converts it only when it rewrites the file because a count
-dropped, and leaves an unchanged file in either layout as it is. Line numbers are not recorded, so moving code within a
+`despec baseline` converts it whenever it rewrites the file, for example after a
+count drops, and leaves an unchanged file in either layout as it is. Line numbers are not recorded, so moving code within a
 file does not invalidate the file. Paths are recorded, so renaming a file with
 recorded entries reports them as new; review that only the rename changed, then
 delete the baseline and run `despec baseline` again.
