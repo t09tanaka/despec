@@ -13,7 +13,7 @@ TOML configuration; all paths resolve relative to its directory.
 
 ```toml
 schema_version = 1
-required_version = "0.4.0"
+required_version = "0.5.0"
 
 [outputs]
 css = "generated/tokens.css"            # one destination
@@ -35,6 +35,12 @@ modes = { dark = "#7ab8ff" }
 [tokens."type.body.md"]
 type = "typography"
 value = { fontSize = { value = 16, unit = "px" }, lineHeight = 1.6 }
+
+[rules.spacing] # optional: also report hard-coded spacing
+allow = ["1px"]
+
+[rules.radius]
+classes = ["rounded", "rounded-*"] # forbid these class names too
 
 [[exceptions]]
 rule = "source.color-literal"
@@ -101,9 +107,11 @@ projects or compatibility testing; normal check fails on absent/empty scan scope
 
 `check --json` emits one object with `schema_version: 1`, `ok`, `scanned_files`,
 and `diagnostics` containing `rule_id`, `path`, `message`, and optional `line`.
+`source.*-literal` diagnostics also carry `literal`, the matched source text.
 Exit status is 0 for success, 1 for findings/configuration/I/O failures, and 2
 for invalid CLI syntax. Rule IDs are `config.invalid`, `token.invalid`,
-`generated.stale`, `source.color-literal`, `source.no-files`,
+`generated.stale`, `source.color-literal`, `source.<rule>-literal` for each
+dimension rule below, `source.no-files`,
 `source.scan-error`, `exception.unused`, `cli.invalid`, and `io.error`.
 
 Source policies are deliberately lexical, not an AST analyzer. They detect
@@ -118,6 +126,54 @@ are not followed. `.git`, `node_modules`, and `target` trees are excluded.
 Exceptions require a reason and exact path/literal; counts must match exactly
 (default 1). Unused or surplus exceptions fail checks. Do not automatically
 baseline every finding to make a project pass.
+
+### Dimension rules
+
+Colors are always checked. Seven dimension rules run only when their table is
+present: `[rules.spacing]`, `[rules.gap]`, `[rules.border-width]`,
+`[rules.outline]`, `[rules.shadow]`, `[rules.radius]`, and `[rules.font-size]`.
+Their findings use rule IDs such as `source.spacing-literal` and work with
+`[[exceptions]]` exactly like colors; an exception matches only its own rule. A
+table accepts only `allow`, values to accept compared as written but
+case-insensitively (`"16"` does not cover `"16.0"`), and `classes`, class-name
+globs to forbid. `[rules.color]` accepts only `classes`. Zero is always accepted,
+with or without a unit. Unknown rule IDs and keys are configuration errors.
+
+Detected forms, after comments are removed, including values split over lines:
+
+| Rule | CSS property (CSS, Sass, Vue, HTML, JSX/TSX) | Tailwind `-[...]` prefix | Flutter (`.dart`) |
+|---|---|---|---|
+| spacing | `margin`, `padding` and their `-top`/`-right`/`-bottom`/`-left`/`-inline`/`-block` (`-start`/`-end`) longhands | `m mx my mt mr mb ml ms me p px py pt pr pb pl ps pe space-x space-y` | `EdgeInsets` and `EdgeInsetsDirectional` `.all/.only/.symmetric/.fromLTRB/.fromSTEB` |
+| gap | `gap`, `row-gap`, `column-gap`, `grid-gap` variants | `gap gap-x gap-y` | `SizedBox` `width:`/`height:`; `spacing:`, `runSpacing:`, `mainAxisSpacing:`, `crossAxisSpacing:` |
+| border-width | `border`, its side and logical longhands, and their `-width` | `border` and `border-x/y/t/r/b/l/s/e` | `BorderSide` and `Border.all` `width:` |
+| outline | `outline`, `outline-width`, `outline-offset` | `outline outline-offset ring ring-offset` | |
+| shadow | offsets, blur, and spread in `box-shadow`, `text-shadow` | `shadow drop-shadow` | `BoxShadow` `blurRadius:`, `spreadRadius:`, and its `Offset(...)` |
+| radius | `border-radius` and each corner | `rounded` and every side and corner | `BorderRadius.circular`, `Radius.circular`, `Radius.elliptical` |
+| font-size | `font-size` | `text` with a length | `fontSize:` |
+
+In a CSS declaration every nonzero number with a unit (`px`, `rem`, `em`, `%`,
+viewport, container, and absolute units) is one finding, including later values of a
+shorthand, `var()` fallbacks, `calc()` terms, and negative values; `literal` is the
+number and unit, such as `12px`. The property must start a line or follow
+whitespace, `;`, `{`, or a quote, and the value ends at `;`, `}`, a line break, or a
+quote. A number directly after a letter, digit, `_`, `-`, `.`, `$`, or `#` is part of
+a name and ignored. Tailwind classes may carry variants (`md:`), `!`, and a negative
+`-`, which are removed from `literal` (`md:-mt-[4px]` reports `mt-[4px]`). A class
+counts only when its value holds a nonzero unit number; it is accepted when `allow`
+lists the class or every such number. `text-[...]` holding a color (`#fff`,
+`rgb(...)`) or a non-`length` type hint is not a font size. In Dart, unitless
+number literals at the top level of the listed arguments are reported, so names
+such as `ds.space4` and nested calls such as `gap(4)` are not. `classes` applies to
+files other than CSS, Sass, Less, and Dart: words split at whitespace, quotes,
+parentheses, braces, and commas, with variants, `!`, and `-` removed, are matched
+against the globs, and `literal` is the class name.
+
+Not detected: camelCase style objects in JavaScript (`marginTop: 8`, `padding:
+"8px"`), `line-height` and `letter-spacing`, custom property and Sass variable
+definitions (`--card-padding: 12px`, `$gap: 12px`), media queries and other
+properties such as `width`, and values assembled at run time or through
+interpolation. Unrelated text can still match lexically, such as a word in prose that
+equals a forbidden class name.
 
 ## Development and releases
 

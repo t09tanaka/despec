@@ -1,4 +1,8 @@
-use crate::{Diagnostic, config::Config};
+use crate::{
+    Diagnostic,
+    config::Config,
+    rules::{Finding, Rules},
+};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use regex::Regex;
 use std::path::Path;
@@ -94,6 +98,7 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
             ));
         }
     }
+    let rules = Rules::new(&c.rules)?;
     let mut ds = vec![];
     let mut used = vec![0usize; c.exceptions.len()];
     let mut count = 0;
@@ -105,38 +110,61 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
         let text =
             std::fs::read_to_string(root.join(&p)).map_err(|e| format!("{}: {e}", p.display()))?;
         let text = strip_comments(&text, p.extension().is_some_and(|e| e != "css"));
-        for (index, line) in text.lines().enumerate() {
+        let extension = p.extension().and_then(|e| e.to_str());
+        let mut findings = vec![];
+        let mut line_starts = vec![];
+        let mut offset = 0;
+        for raw in text.split_inclusive('\n') {
+            line_starts.push(offset);
+            let line = raw.strip_suffix('\n').unwrap_or(raw);
+            let line = line.strip_suffix('\r').unwrap_or(line);
             for m in re.find_iter(line) {
                 // A standalone ID selector is unambiguous; complex selectors still
                 // need a language parser and are documented as a lexical limitation.
-                if p.extension()
-                    .is_some_and(|e| matches!(e.to_str(), Some("css" | "scss" | "vue")))
+                if matches!(extension, Some("css" | "scss" | "vue"))
                     && m.as_str().starts_with('#')
                     && line[..m.start()].trim().is_empty()
                     && line[m.end()..].trim_start().starts_with('{')
                 {
                     continue;
                 }
-                let mut suppressed = false;
-                for (i, e) in c.exceptions.iter().enumerate() {
-                    if e.path == p.to_string_lossy()
-                        && e.literal == m.as_str()
-                        && e.line.is_none_or(|n| n == index + 1)
-                        && !suppressed
-                    {
-                        used[i] += 1;
-                        suppressed = true;
-                    }
+                findings.push(Finding {
+                    rule: "color",
+                    offset: offset + m.start(),
+                    literal: m.as_str().to_owned(),
+                });
+            }
+            offset += raw.len();
+        }
+        findings.extend(rules.find(&text, extension));
+        // Stable, so same-offset findings keep detection order.
+        findings.sort_by_key(|f| f.offset);
+        let path = p.to_string_lossy();
+        for f in findings {
+            let line = line_starts.partition_point(|&s| s <= f.offset);
+            let rule_id = format!("source.{}-literal", f.rule);
+            let mut suppressed = false;
+            for (i, e) in c.exceptions.iter().enumerate() {
+                if e.rule == rule_id
+                    && e.path == path
+                    && e.literal == f.literal
+                    && e.line.is_none_or(|n| n == line)
+                    && !suppressed
+                {
+                    used[i] += 1;
+                    suppressed = true;
                 }
-                if !suppressed {
-                    let mut d = Diagnostic::new(
-                        "source.color-literal",
-                        &p.to_string_lossy(),
-                        &format!("use a design token instead of {}", m.as_str()),
-                    );
-                    d.line = Some(index + 1);
-                    ds.push(d)
-                }
+            }
+            if !suppressed {
+                let message = if f.rule == "color" {
+                    format!("use a design token instead of {}", f.literal)
+                } else {
+                    format!("use a {} token instead of {}", f.rule, f.literal)
+                };
+                let mut d = Diagnostic::new(&rule_id, &path, &message);
+                d.line = Some(line);
+                d.literal = Some(f.literal);
+                ds.push(d)
             }
         }
     }

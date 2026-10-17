@@ -1,5 +1,6 @@
 pub mod catalog;
 pub mod config;
+pub mod rules;
 pub mod scan;
 use serde::Serialize;
 #[derive(Serialize)]
@@ -9,6 +10,9 @@ pub struct Diagnostic {
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
+    /// The matched source text for `source.*-literal` findings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub literal: Option<String>,
 }
 impl Diagnostic {
     pub fn new(rule: &str, path: &str, message: &str) -> Self {
@@ -17,6 +21,7 @@ impl Diagnostic {
             path: path.into(),
             message: message.into(),
             line: None,
+            literal: None,
         }
     }
 }

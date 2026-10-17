@@ -14,6 +14,18 @@ pub struct Config {
     pub exceptions: Vec<Exception>,
     #[serde(default)]
     pub modes: BTreeMap<String, Mode>,
+    /// Opt-in source rules. Colors are always checked; each dimension rule runs only
+    /// when its table is present.
+    #[serde(default)]
+    pub rules: BTreeMap<String, RuleConfig>,
+}
+/// Settings for one source rule: values to accept and class names to forbid.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuleConfig {
+    pub allow: Option<Vec<String>>,
+    #[serde(default)]
+    pub classes: Vec<String>,
 }
 /// An alternative set of token values, such as a dark theme. `css` is the selector or
 /// at-rule that activates it; at-rules wrap a `:root` block.
@@ -135,8 +147,35 @@ impl Config {
                 globset::Glob::new(pattern).map_err(|e| e.to_string())?;
             }
         }
+        for (id, rule) in &self.rules {
+            if id == "color" {
+                if rule.allow.is_some() {
+                    return Err(
+                        "rules.color accepts only classes; colors are always checked".into(),
+                    );
+                }
+            } else if !crate::rules::DIMENSION_RULES.contains(&id.as_str()) {
+                return Err(format!(
+                    "unknown rule {id}; expected color or one of {}",
+                    crate::rules::DIMENSION_RULES.join(", ")
+                ));
+            }
+            if rule.allow.iter().flatten().any(|v| v.trim().is_empty()) {
+                return Err(format!("rules.{id}.allow entries must not be empty"));
+            }
+            for class in &rule.classes {
+                if class.is_empty() {
+                    return Err(format!("rules.{id}.classes entries must not be empty"));
+                }
+                globset::Glob::new(class).map_err(|e| format!("rules.{id}.classes: {e}"))?;
+            }
+        }
         for e in &self.exceptions {
-            if e.rule != "source.color-literal"
+            if !e
+                .rule
+                .strip_prefix("source.")
+                .and_then(|r| r.strip_suffix("-literal"))
+                .is_some_and(|r| r == "color" || crate::rules::DIMENSION_RULES.contains(&r))
                 || e.reason.trim().is_empty()
                 || e.literal.is_empty()
                 || !safe_path(std::path::Path::new(&e.path))
