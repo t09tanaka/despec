@@ -28,6 +28,17 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
     let exclude = globs(&sources.exclude)?;
     let re=Regex::new(r"(?i)#[0-9a-f]{3}(?:[0-9a-f]{1}|[0-9a-f]{3}|[0-9a-f]{5})?\b|\b(?:rgba?|hsla?)\(\s*[0-9.+%-]+(?:[\s,/]+[0-9.+%-]+){2,3}\s*\)|\bColor\s*\(\s*0x[0-9a-f]{8}\s*\)").unwrap();
     let mut paths = std::collections::BTreeSet::new();
+    // Compare resolved files too, so another spelling of the baseline path (letter
+    // case on a case-insensitive filesystem, or a symlink) is still skipped.
+    let baseline = c
+        .baseline()
+        .and_then(|b| std::fs::canonicalize(root.join(b)).ok());
+    let is_baseline = |p: &Path| {
+        c.is_baseline(p)
+            || baseline
+                .as_ref()
+                .is_some_and(|b| std::fs::canonicalize(root.join(p)).is_ok_and(|q| &q == b))
+    };
     for pattern in &sources.include {
         let fixed: String = pattern
             .chars()
@@ -76,14 +87,15 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
         {
             let entry = entry.map_err(|e| e.to_string())?;
             let p = entry.path().strip_prefix(root).map_err(|e| e.to_string())?;
-            if selector.is_match(p) && include.is_match(p) && !exclude.is_match(p) {
+            if selector.is_match(p)
+                && include.is_match(p)
+                && !exclude.is_match(p)
+                && !is_baseline(p)
+            {
                 if entry.file_type().is_symlink() {
                     return Err(format!("selected source is symlink: {}", p.display()));
                 }
-                if entry.file_type().is_file()
-                    && !c.is_output(p)
-                    && !c.is_baseline(p)
-                    && p != Path::new(".despec.toml")
+                if entry.file_type().is_file() && !c.is_output(p) && p != Path::new(".despec.toml")
                 {
                     paths.insert(p.to_owned());
                     selected += 1;
@@ -106,7 +118,7 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
     let mut used = vec![0usize; c.exceptions.len()];
     let mut count = 0;
     for p in paths {
-        if c.is_output(&p) || c.is_baseline(&p) || p == Path::new(".despec.toml") {
+        if c.is_output(&p) || p == Path::new(".despec.toml") {
             continue;
         }
         count += 1;

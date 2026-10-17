@@ -203,11 +203,7 @@ impl Config {
                     e.rule
                 ));
             }
-            if !e
-                .rule
-                .strip_prefix("source.")
-                .and_then(|r| r.strip_suffix("-literal"))
-                .is_some_and(|r| r == "color" || crate::rules::DIMENSION_RULES.contains(&r))
+            if !literal_rule(&e.rule)
                 || e.reason.trim().is_empty()
                 || e.literal.is_empty()
                 || !safe_path(std::path::Path::new(&e.path))
@@ -219,6 +215,12 @@ impl Config {
         }
         Ok(())
     }
+}
+/// Whether `rule` is `source.color-literal` or a dimension rule's literal ID.
+pub fn literal_rule(rule: &str) -> bool {
+    rule.strip_prefix("source.")
+        .and_then(|r| r.strip_suffix("-literal"))
+        .is_some_and(|r| r == "color" || crate::rules::DIMENSION_RULES.contains(&r))
 }
 pub fn safe_path(p: &std::path::Path) -> bool {
     !p.as_os_str().is_empty()

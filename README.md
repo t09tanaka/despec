@@ -156,8 +156,10 @@ into the baseline.
 ```
 
 Entries are sorted by rule, path, and literal, each count is at least 1, and the
-file ends with a newline. Line numbers are not recorded, so moving code does not
-invalidate the file.
+file ends with a newline. Line numbers are not recorded, so moving code within a
+file does not invalidate the file. Paths are recorded, so renaming a file with
+recorded entries reports them as new; review that only the rename changed, then
+delete the baseline and run `despec baseline` again.
 
 `despec baseline` creates the file from the current findings when it is absent.
 When it exists, the file is rewritten only if no count grows and no new

@@ -1,7 +1,7 @@
 //! A ratchet for existing hard-coded values: the number of remaining
 //! `source.*-literal` findings per (rule, path, literal). Counts may only go down;
 //! new hard-coded values belong in `[[exceptions]]` with a reason.
-use crate::{Diagnostic, rules::DIMENSION_RULES};
+use crate::{Diagnostic, config::literal_rule};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -26,12 +26,7 @@ struct Entry {
 
 /// Whether a diagnostic is a hard-coded value that a baseline can record.
 pub fn is_literal(d: &Diagnostic) -> bool {
-    d.literal.is_some() && known_rule(&d.rule_id)
-}
-fn known_rule(rule: &str) -> bool {
-    rule.strip_prefix("source.")
-        .and_then(|r| r.strip_suffix("-literal"))
-        .is_some_and(|r| r == "color" || DIMENSION_RULES.contains(&r))
+    d.literal.is_some() && literal_rule(&d.rule_id)
 }
 pub fn key(d: &Diagnostic) -> Key {
     (
@@ -60,7 +55,7 @@ pub fn parse(text: &str) -> Result<Counts, String> {
     }
     let mut counts = Counts::new();
     for e in file.entries {
-        if !known_rule(&e.rule)
+        if !literal_rule(&e.rule)
             || e.literal.is_empty()
             || !crate::config::safe_path(std::path::Path::new(&e.path))
             || e.count == 0
@@ -87,7 +82,6 @@ pub fn render(counts: &Counts) -> String {
         schema_version: 1,
         entries: counts
             .iter()
-            .filter(|(_, n)| **n > 0)
             .map(|((rule, path, literal), count)| Entry {
                 rule: rule.clone(),
                 path: path.clone(),

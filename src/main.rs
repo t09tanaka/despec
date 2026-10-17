@@ -87,7 +87,16 @@ fn run(cli: &Cli) -> Result<(usize, Vec<Diagnostic>), (String, String)> {
                 .map_err(|e| ("token.invalid".into(), e))?,
         ));
     }
-    let baseline = match c.baseline() {
+    // Only commands that read or write the baseline resolve it.
+    let uses_baseline = matches!(
+        cli.command,
+        Command::Baseline
+            | Command::Check {
+                generated_only: false,
+                ..
+            }
+    );
+    let baseline = match c.baseline().filter(|_| uses_baseline) {
         Some(p) => {
             let path = root.join(p);
             let resolved = resolve(&root, &path).map_err(|e| fail(format!("baseline {e}")))?;
@@ -244,7 +253,8 @@ fn write_baseline(
         Err(e) => return Err(("io.error".into(), e.to_string())),
     };
     let text = baseline::render(&found);
-    if previous.as_deref() == Some(text.as_str()) {
+    // A CRLF checkout of an unchanged file is left alone too.
+    if previous.is_some_and(|p| p.replace("\r\n", "\n") == text) {
         return Ok((n, vec![]));
     }
     let io = |e: std::io::Error| ("io.error".to_string(), e.to_string());

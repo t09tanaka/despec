@@ -113,6 +113,11 @@ fn hand_edited_order_is_rewritten_stably() {
     fs::remove_file(d.path().join("src/baseline.json")).unwrap();
     assert!(run(d.path(), &["baseline"]).status.success());
     assert_eq!(baseline(d.path()), sorted);
+    // A CRLF checkout of the same content is not rewritten.
+    let crlf = sorted.replace('\n', "\r\n");
+    fs::write(d.path().join("src/baseline.json"), &crlf).unwrap();
+    assert!(run(d.path(), &["baseline"]).status.success());
+    assert_eq!(baseline(d.path()), crlf);
 }
 
 #[test]
@@ -313,6 +318,18 @@ fn configuration_and_scope_errors() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("source.no-files"));
     assert_eq!(baseline(d.path()), before);
+    // Another spelling or a symlink of the baseline path is not scanned either.
+    let link = "src/link.json";
+    std::os::unix::fs::symlink("baseline.json", d.path().join(link)).unwrap();
+    fs::write(&p, config(&format!("baseline = \"{link}\""), "")).unwrap();
+    assert!(run(d.path(), &["baseline"]).status.success());
+    assert!(check(d.path()).0);
+    if fs::metadata(d.path().join("SRC/baseline.json")).is_ok() {
+        fs::write(&p, config("baseline = \"SRC/baseline.json\"", "")).unwrap();
+        assert!(check(d.path()).0);
+    }
+    fs::remove_file(d.path().join(link)).unwrap();
+    fs::write(&p, config("baseline = \"src/baseline.json\"", "")).unwrap();
     // --generated-only ignores the baseline entirely.
     fs::remove_file(d.path().join("src/baseline.json")).unwrap();
     assert!(
