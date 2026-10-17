@@ -117,11 +117,18 @@ dimension rule below, `source.no-files`,
 `baseline.invalid`, `cli.invalid`, and `io.error`.
 
 Source policies are deliberately lexical, not an AST analyzer. They detect
-hex colors, numeric rgb/rgba/hsl/hsla functions, and Dart Color(0xAARRGGBB).
+hex colors, numeric rgb/rgba/hsl/hsla functions, and Dart Color(0xAARRGGBB),
+and CSS named colors such as `black` when `[rules.color]` sets `keywords = true`
+(see [Named colors](#named-colors)).
 C-style, line, and HTML comments are ignored; quoted strings are scanned.
 Standalone CSS ID selectors such as `#abcdef {` are ignored; complex selectors
-can still produce false positives. Numeric color expressions
-split over lines, language interpolation, aliases, named colors, and computed
+can still produce false positives. A `#` directly after a letter, digit, `_`,
+`/`, `&`, `?`, or `=` is not a color, so `issue/#271`, `page#abc`, `?x=#fff`,
+and `&#123;` are skipped; inside a Tailwind arbitrary value such as
+`shadow-[0_1px_#000]` the `_` stands for a space and the color still counts.
+This is a breaking change in 0.6.0: earlier versions reported these, and an
+unquoted attribute such as `fill=#fff` is now skipped too. Numeric color expressions
+split over lines, language interpolation, aliases, and computed
 colors are not fully analyzed. Keep existing language-specific AST guards.
 Configure a meaningful explicit scope; generated files are skipped. Each include is walked from its fixed directory prefix to avoid traversing unrelated trees. Symlinks
 are not followed. `.git`, `node_modules`, and `target` trees are excluded.
@@ -191,7 +198,7 @@ Their findings use rule IDs such as `source.spacing-literal` and work with
 an exception for a dimension rule requires that rule's table. A
 table accepts only `allow`, values to accept compared as written but
 case-insensitively (`"16"` does not cover `"16.0"`), and `classes`, class-name
-globs to forbid. `[rules.color]` accepts only `classes`. Zero is always accepted,
+globs to forbid. `[rules.color]` accepts only `classes` and `keywords`. Zero is always accepted,
 with or without a unit. Unknown rule IDs and keys are configuration errors.
 
 Detected forms, after comments are removed:
@@ -243,6 +250,54 @@ definitions (`--card-padding: 12px`, `$gap: 12px`), media queries and other
 properties such as `width`, and values assembled at run time or through
 interpolation. Unrelated text can still match lexically, such as a word in prose that
 equals a forbidden class name.
+
+### Named colors
+
+`[rules.color]` with `keywords = true` (default `false`) also reports the 148
+named colors of CSS Color Module Level 4, compared case-insensitively, as
+`source.color-literal` with the word as written (`White`). They are found in
+three forms, after comments are removed:
+
+- Words in the value of a CSS declaration in CSS, SCSS, Sass, Less, and in style
+  attributes, `<style>` blocks, and strings in other files, for the properties
+  `color` and every `*-color` longhand (`background-color`, `border-top-color`,
+  `outline-color`, `text-decoration-color`, `caret-color`, `accent-color`,
+  `column-rule-color`, `stop-color`, `-webkit-text-fill-color`, …), `background`, `border`
+  and its side and logical longhands, `outline`, `box-shadow`, `text-shadow`,
+  `fill`, `stroke`, `column-rule`, `text-decoration`, and `text-emphasis`. The
+  property must start a line or follow whitespace, `;`, `{`, or a quote, and the
+  value ends as for the dimension rules: at `;`, `}`, or a nested `{` in CSS,
+  SCSS, and Less files, and also at a line break or a quote elsewhere.
+- In files other than stylesheets and Dart, a `fill`, `stroke`, `color`, or
+  `stop-color` attribute after whitespace whose quoted value is a single named
+  color, such as `<rect fill="black">`. Bound attributes such as Vue `:fill="black"`
+  are expressions and skipped.
+- A Tailwind arbitrary value holding only a named color, optionally with the
+  `color:` hint, for `bg`, `text`, `border` and its sides, `outline`, `ring`,
+  `ring-offset`, `divide`, `decoration`, `placeholder`, `caret`, `accent`, `fill`,
+  `stroke`, `shadow`, `from`, `via`, and `to`; `literal` is the class without
+  variants, such as `bg-[white]` for `md:bg-[white]`.
+
+`transparent`, `currentColor`, `inherit`, `initial`, `unset`, `revert`, and
+`none` are not named colors. A word that is part of a longer name or follows
+`$`, `.`, `#`, `@`, `%`, `/`, or `\`, or that precedes `.` or `(`, is not
+counted, so `var(--ds-white)`, `$white`, `url(white.png)`, and `Colors.white` pass.
+Selectors such as `.text-white` and Tailwind class names such as `text-white`
+are not declarations; forbid such classes with `classes`. Sass variable and
+custom property definitions are not checked, as for the dimension rules, and
+neither are camelCase style objects or quoted values in JavaScript objects
+(`{ color: "red" }`, `{ backgroundColor: 'red' }`). Dart
+files are not checked for named colors. The words are matched lexically, so an
+unquoted value in a JavaScript object such as `{ color: white }` is reported even
+when `white` is a variable, and so are an assignment such as `color = "red"` and
+prose that reads like a declaration.
+
+Named colors share the rule ID of the other colors, so `[[exceptions]]` with
+`rule = "source.color-literal"` and `literal = "black"` accepts one, and
+`despec baseline` records them beside hex colors. Turning `keywords` on in a
+project with a baseline reports the new findings as growth until `despec
+baseline` is run again; delete the baseline first, because new entries are
+never added to an existing one.
 
 ## Development and releases
 

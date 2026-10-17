@@ -26,6 +26,9 @@ pub struct RuleConfig {
     pub allow: Option<Vec<String>>,
     #[serde(default)]
     pub classes: Vec<String>,
+    /// `[rules.color]` only: also report CSS named colors such as `black`.
+    #[serde(default)]
+    pub keywords: bool,
 }
 /// An alternative set of token values, such as a dark theme. `css` is the selector or
 /// at-rule that activates it; at-rules wrap a `:root` block.
@@ -170,7 +173,8 @@ impl Config {
             if id == "color" {
                 if rule.allow.is_some() {
                     return Err(
-                        "rules.color accepts only classes; colors are always checked".into(),
+                        "rules.color accepts only classes and keywords; colors are always checked"
+                            .into(),
                     );
                 }
             } else if !crate::rules::DIMENSION_RULES.contains(&id.as_str()) {
@@ -178,6 +182,9 @@ impl Config {
                     "unknown rule {id}; expected color or one of {}",
                     crate::rules::DIMENSION_RULES.join(", ")
                 ));
+            }
+            if id != "color" && rule.keywords {
+                return Err(format!("rules.{id}.keywords applies only to rules.color"));
             }
             if rule.allow.iter().flatten().any(|v| v.trim().is_empty()) {
                 return Err(format!("rules.{id}.allow entries must not be empty"));
