@@ -114,6 +114,7 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
         }
     }
     let rules = Rules::new(&c.rules)?;
+    let mut chosen = std::collections::BTreeSet::new();
     let mut ds = vec![];
     let mut used = vec![0usize; c.exceptions.len()];
     let mut count = 0;
@@ -167,7 +168,9 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
             }
             offset += raw.len();
         }
-        findings.extend(rules.find(&text, extension));
+        let selection = rules.select(&p);
+        chosen.extend(selection.overrides.iter().copied());
+        findings.extend(selection.find(&text, extension));
         // Stable, so same-offset findings keep detection order.
         findings.sort_by_key(|f| f.offset);
         let path = p.to_string_lossy();
@@ -225,6 +228,20 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
                     e.reason
                 ),
             ))
+        }
+    }
+    for (id, rule) in &c.rules {
+        for (i, o) in rule.overrides.iter().enumerate() {
+            if !chosen.iter().any(|&(r, n)| r == id && n == i) {
+                ds.push(Diagnostic::new(
+                    "override.unused",
+                    ".despec.toml",
+                    &format!(
+                        "rules.{id}.overrides[{i}] applies to no scanned file; paths {:?} match none, or only files an earlier override takes",
+                        o.paths
+                    ),
+                ))
+            }
         }
     }
     Ok((count, ds))

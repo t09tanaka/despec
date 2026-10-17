@@ -29,6 +29,20 @@ pub struct RuleConfig {
     /// `[rules.color]` only: also report CSS named colors such as `black`.
     #[serde(default)]
     pub keywords: bool,
+    /// Per-path replacements for `allow`, `classes`, and `keywords`; the first one
+    /// whose `paths` match a file applies to it.
+    #[serde(default)]
+    pub overrides: Vec<RuleOverride>,
+}
+/// One `[[rules.<id>.overrides]]` entry. A key that is present replaces the rule's
+/// value for the matched files; an absent key keeps it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RuleOverride {
+    pub paths: Vec<String>,
+    pub allow: Option<Vec<String>>,
+    pub classes: Option<Vec<String>>,
+    pub keywords: Option<bool>,
 }
 /// An alternative set of token values, such as a dark theme. `css` is the selector or
 /// at-rule that activates it; at-rules wrap a `:root` block.
@@ -145,14 +159,7 @@ impl Config {
         }
         if let Some(sources) = &self.sources {
             for pattern in sources.include.iter().chain(&sources.exclude) {
-                if pattern.is_empty()
-                    || std::path::Path::new(pattern).components().any(|c| {
-                        matches!(
-                            c,
-                            std::path::Component::ParentDir | std::path::Component::RootDir
-                        )
-                    })
-                {
+                if !relative_pattern(pattern) {
                     return Err("source patterns must be relative without parent traversal".into());
                 }
                 globset::Glob::new(pattern).map_err(|e| e.to_string())?;
@@ -186,14 +193,40 @@ impl Config {
             if id != "color" && rule.keywords {
                 return Err(format!("rules.{id}.keywords applies only to rules.color"));
             }
-            if rule.allow.iter().flatten().any(|v| v.trim().is_empty()) {
-                return Err(format!("rules.{id}.allow entries must not be empty"));
+            values(id, "", rule.allow.as_deref(), &rule.classes)?;
+            if !rule.overrides.is_empty() && self.sources.is_none() {
+                return Err(format!("rules.{id}.overrides requires [sources]"));
             }
-            for class in &rule.classes {
-                if class.is_empty() {
-                    return Err(format!("rules.{id}.classes entries must not be empty"));
+            for (i, o) in rule.overrides.iter().enumerate() {
+                let at = format!(".overrides[{i}]");
+                if o.paths.is_empty() {
+                    return Err(format!("rules.{id}{at}.paths must not be empty"));
                 }
-                globset::Glob::new(class).map_err(|e| format!("rules.{id}.classes: {e}"))?;
+                for pattern in &o.paths {
+                    if !relative_pattern(pattern) {
+                        return Err(format!(
+                            "rules.{id}{at}.paths must be relative without parent traversal: {pattern:?}"
+                        ));
+                    }
+                    globset::Glob::new(pattern)
+                        .map_err(|e| format!("rules.{id}{at}.paths: {e}"))?;
+                }
+                if id == "color" && o.allow.is_some() {
+                    return Err(format!(
+                        "rules.color{at} accepts only paths, classes, and keywords"
+                    ));
+                }
+                if id != "color" && o.keywords.is_some() {
+                    return Err(format!(
+                        "rules.{id}{at}.keywords applies only to rules.color"
+                    ));
+                }
+                values(
+                    id,
+                    &at,
+                    o.allow.as_deref(),
+                    o.classes.as_deref().unwrap_or_default(),
+                )?;
             }
         }
         for e in &self.exceptions {
@@ -222,6 +255,49 @@ impl Config {
         }
         Ok(())
     }
+}
+/// Rejects rule tables that exist only because `[[rules.<id>.overrides]]` implied
+/// them: TOML creates `rules.<id>` for such a header, which would turn the rule on
+/// for every file.
+pub fn check_rule_tables(input: &str) -> Result<(), String> {
+    let doc: toml_edit::DocumentMut = input.parse().map_err(|e| format!("{e}"))?;
+    let Some(rules) = doc.get("rules").and_then(|r| r.as_table_like()) else {
+        return Ok(());
+    };
+    for (id, item) in rules.iter() {
+        if let Some(table) = item.as_table()
+            && table.is_implicit()
+            && table.iter().all(|(key, _)| key == "overrides")
+        {
+            return Err(format!(
+                "rules.{id}.overrides requires a [rules.{id}] table"
+            ));
+        }
+    }
+    Ok(())
+}
+/// Checks `allow` and `classes` entries of a rule table or one of its overrides.
+fn values(id: &str, at: &str, allow: Option<&[String]>, classes: &[String]) -> Result<(), String> {
+    if allow.into_iter().flatten().any(|v| v.trim().is_empty()) {
+        return Err(format!("rules.{id}{at}.allow entries must not be empty"));
+    }
+    for class in classes {
+        if class.is_empty() {
+            return Err(format!("rules.{id}{at}.classes entries must not be empty"));
+        }
+        globset::Glob::new(class).map_err(|e| format!("rules.{id}{at}.classes: {e}"))?;
+    }
+    Ok(())
+}
+/// A glob relative to the configuration directory, as `[sources] include` takes.
+fn relative_pattern(pattern: &str) -> bool {
+    !pattern.is_empty()
+        && !std::path::Path::new(pattern).components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        })
 }
 /// Whether `rule` is `source.color-literal` or a dimension rule's literal ID.
 pub fn literal_rule(rule: &str) -> bool {

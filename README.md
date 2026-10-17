@@ -113,7 +113,7 @@ Exit status is 0 for success, 1 for findings/configuration/I/O failures, and 2
 for invalid CLI syntax. Rule IDs are `config.invalid`, `token.invalid`,
 `generated.stale`, `source.color-literal`, `source.<rule>-literal` for each
 dimension rule below, `source.no-files`,
-`source.scan-error`, `exception.unused`, `baseline.increase`, `baseline.stale`,
+`source.scan-error`, `exception.unused`, `override.unused`, `baseline.increase`, `baseline.stale`,
 `baseline.invalid`, `cli.invalid`, and `io.error`.
 
 Source policies are deliberately lexical, not an AST analyzer. They detect
@@ -199,7 +199,8 @@ Their findings use rule IDs such as `source.spacing-literal` and work with
 an exception for a dimension rule requires that rule's table. A
 table accepts only `allow`, values to accept compared as written but
 case-insensitively (`"16"` does not cover `"16.0"`), and `classes`, class-name
-globs to forbid. `[rules.color]` accepts only `classes` and `keywords`. Zero is always accepted,
+globs to forbid, and `overrides` (see [Per-path overrides](#per-path-overrides)).
+`[rules.color]` accepts only `classes`, `keywords`, and `overrides`. Zero is always accepted,
 with or without a unit. Unknown rule IDs and keys are configuration errors.
 
 Detected forms, after comments are removed:
@@ -299,6 +300,42 @@ Named colors share the rule ID of the other colors, so `[[exceptions]]` with
 project with a baseline reports the new findings as growth until `despec
 baseline` is run again; delete the baseline first, because new entries are
 never added to an existing one.
+
+### Per-path overrides
+
+One configuration may check several applications whose conventions differ: one
+binds Tailwind's `rounded-lg` to a token and accepts it, another writes it by
+hand. `[[rules.<id>.overrides]]` changes a rule's settings for some files:
+
+```toml
+[rules.radius]
+classes = ["rounded", "rounded-{sm,md,lg,xl,2xl,3xl,full}"]
+
+[[rules.radius.overrides]]
+paths = ["apps/admin/**"]
+classes = ["rounded-{xl,2xl,3xl,full}"]
+```
+
+`paths` is required: a nonempty list of globs relative to the configuration
+directory, written and matched like `[sources] include`. An override may also set
+`allow` and `classes`, and under `[rules.color]` `classes` and `keywords`. Each key
+it sets replaces the rule's value for the matched files; lists are not merged,
+and `classes = []` stops matching class names there. A key it leaves out keeps the
+value from the rule's table. When several overrides of one rule match a file, the
+first one in the configuration applies and the rest are ignored for that file; a
+file that no override matches uses the table. Each rule is resolved separately, so
+an override of `[rules.radius]` does not change `[rules.spacing]`. Findings keep
+their rule IDs, so `[[exceptions]]` and the baseline work as for any other
+finding.
+
+An override needs its rule's table: `[[rules.radius.overrides]]` with neither a
+`[rules.radius]` header nor another `rules.radius` key is `config.invalid`,
+because the rule would otherwise turn on for every file. Empty `paths`, a path
+with `..` or a leading `/`, an invalid glob, and an unknown key are `config.invalid`
+too. An override that applies to no scanned file, because its `paths` match none or
+only files an earlier override already takes, is reported after the scan as
+`override.unused` at `.despec.toml`, like `exception.unused`; while it remains,
+`despec baseline` writes nothing.
 
 ## Development and releases
 
