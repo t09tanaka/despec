@@ -253,8 +253,12 @@ fn write_baseline(
         Err(e) => return Err(("io.error".into(), e.to_string())),
     };
     let text = baseline::render(&found);
-    // A CRLF checkout of an unchanged file is left alone too.
-    if previous.is_some_and(|p| p.replace("\r\n", "\n") == text) {
+    // An unchanged file is left alone, including a CRLF checkout and a file still
+    // in the layout written before 0.6.0.
+    if previous.is_some_and(|p| {
+        let p = p.replace("\r\n", "\n");
+        p == text || p == baseline::render_legacy(&found)
+    }) {
         return Ok((n, vec![]));
     }
     let io = |e: std::io::Error| ("io.error".to_string(), e.to_string());
