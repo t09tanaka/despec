@@ -338,3 +338,88 @@ fn configuration_and_scope_errors() {
             .success()
     );
 }
+
+fn counts(entries: &[(&str, &str, &str, usize)]) -> despec::baseline::Counts {
+    entries
+        .iter()
+        .map(|&(r, p, l, n)| ((r.to_owned(), p.to_owned(), l.to_owned()), n))
+        .collect()
+}
+
+#[test]
+fn render_writes_one_entry_per_line() {
+    use despec::baseline::{parse, render};
+    let two = counts(&[
+        ("source.spacing-literal", "src/b.css", "8px", 1),
+        ("source.spacing-literal", "src/a.css", "12px", 3),
+    ]);
+    let text = render(&two);
+    assert_eq!(
+        text,
+        r#"{
+  "schema_version": 1,
+  "entries": [
+    {"rule": "source.spacing-literal", "path": "src/a.css", "literal": "12px", "count": 3},
+    {"rule": "source.spacing-literal", "path": "src/b.css", "literal": "8px", "count": 1}
+  ]
+}
+"#
+    );
+    assert_eq!(parse(&text).unwrap(), two);
+    assert_eq!(
+        render(&counts(&[])),
+        "{\n  \"schema_version\": 1,\n  \"entries\": []\n}\n"
+    );
+    assert!(parse(&render(&counts(&[]))).unwrap().is_empty());
+    // Strings are escaped exactly as serde_json escapes them.
+    let odd = "src/\"q\" \\ \t\u{1f}é.css";
+    let escaped = counts(&[("source.color-literal", odd, "#abc", 2)]);
+    let text = render(&escaped);
+    assert_eq!(
+        text,
+        "{\n  \"schema_version\": 1,\n  \"entries\": [\n    {\"rule\": \"source.color-literal\", \"path\": \"src/\\\"q\\\" \\\\ \\t\\u001fé.css\", \"literal\": \"#abc\", \"count\": 2}\n  ]\n}\n"
+    );
+    assert!(text.contains(&serde_json::to_string(odd).unwrap()));
+    assert_eq!(parse(&text).unwrap(), escaped);
+}
+
+/// The fixture's baseline in the multi-line layout written before 0.6.0.
+fn legacy(b12: usize) -> String {
+    let entry = |rule: &str, path: &str, literal: &str, count: usize| {
+        format!(
+            "    {{\n      \"rule\": \"{rule}\",\n      \"path\": \"{path}\",\n      \"literal\": \"{literal}\",\n      \"count\": {count}\n    }}"
+        )
+    };
+    format!(
+        "{{\n  \"schema_version\": 1,\n  \"entries\": [\n{}\n  ]\n}}\n",
+        [
+            entry("source.color-literal", "src/b.css", "#abcdef", 1),
+            entry("source.radius-literal", "src/a.css", "4px", 1),
+            entry("source.spacing-literal", "src/a.css", "12px", 1),
+            entry("source.spacing-literal", "src/b.css", "12px", b12),
+        ]
+        .join(",\n")
+    )
+}
+
+#[test]
+fn legacy_layout_is_read_and_kept_until_a_count_drops() {
+    let d = fixture();
+    let old = legacy(2);
+    fs::write(d.path().join("src/baseline.json"), &old).unwrap();
+    let (ok, v) = check(d.path());
+    assert!(ok, "{v}");
+    // Unchanged counts leave the old layout as it is.
+    assert!(run(d.path(), &["baseline"]).status.success());
+    assert_eq!(baseline(d.path()), old);
+    // A recorded count above the findings is lowered and written in the new layout.
+    fs::write(d.path().join("src/baseline.json"), legacy(3)).unwrap();
+    assert!(!check(d.path()).0);
+    assert!(run(d.path(), &["baseline"]).status.success());
+    let text = baseline(d.path());
+    assert_eq!(text.lines().count(), 9, "{text}");
+    assert!(text.contains(
+        "\n    {\"rule\": \"source.spacing-literal\", \"path\": \"src/b.css\", \"literal\": \"12px\", \"count\": 2}\n"
+    ));
+    assert!(check(d.path()).0);
+}

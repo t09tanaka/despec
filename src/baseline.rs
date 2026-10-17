@@ -76,8 +76,32 @@ pub fn parse(text: &str) -> Result<Counts, String> {
     }
     Ok(counts)
 }
-/// Renders entries in rule, path, literal order with a trailing newline.
+/// Renders entries in rule, path, literal order, one entry per line, with a
+/// trailing newline. One line per entry keeps the file small and makes parallel
+/// changes to different entries merge cleanly.
 pub fn render(counts: &Counts) -> String {
+    let string = |s: &str| serde_json::to_string(s).unwrap();
+    let entries: Vec<_> = counts
+        .iter()
+        .map(|((rule, path, literal), count)| {
+            format!(
+                "    {{\"rule\": {}, \"path\": {}, \"literal\": {}, \"count\": {count}}}",
+                string(rule),
+                string(path),
+                string(literal)
+            )
+        })
+        .collect();
+    let entries = if entries.is_empty() {
+        "[]".to_owned()
+    } else {
+        format!("[\n{}\n  ]", entries.join(",\n"))
+    };
+    format!("{{\n  \"schema_version\": 1,\n  \"entries\": {entries}\n}}\n")
+}
+/// The multi-line layout written before 0.6.0. A file already in this layout with
+/// unchanged counts is left alone rather than rewritten.
+pub fn render_legacy(counts: &Counts) -> String {
     let file = File {
         schema_version: 1,
         entries: counts
