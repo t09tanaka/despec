@@ -134,6 +134,22 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
             let line = raw.strip_suffix('\n').unwrap_or(raw);
             let line = line.strip_suffix('\r').unwrap_or(line);
             for m in re.find_iter(line) {
+                // A `#` directly after a word, `/`, or `&` is a URL fragment, an issue
+                // reference such as `issue/#271`, or an HTML entity. `?` and `=` are
+                // not checked, so `a?#fff:#000` and `fill=#fff` still count. Inside a
+                // Tailwind arbitrary value `_` stands for a space, as in
+                // `shadow-[0_1px_#000]`, so a `_` there still precedes a color. `None`
+                // sorts before `Some`, so a line without `[` is outside any value.
+                let before = &line[..m.start()];
+                if m.as_str().starts_with('#')
+                    && before.bytes().last().is_some_and(|c| {
+                        c.is_ascii_alphanumeric()
+                            || b"/&".contains(&c)
+                            || (c == b'_' && before.rfind('[') <= before.rfind(']'))
+                    })
+                {
+                    continue;
+                }
                 // A standalone ID selector is unambiguous; complex selectors still
                 // need a language parser and are documented as a lexical limitation.
                 if matches!(extension, Some("css" | "scss" | "vue"))

@@ -65,21 +65,25 @@ const TAILWIND_PREFIXES: [(&str, &str); 7] = [
 
 /// Declarations in markup and scripts: the value ends at `;`, `}`, a line break, or a
 /// quote, because it usually sits inside an attribute or a string.
+const MARKUP_VALUE: &str = r#"[^;}\n"'`]*"#;
 static CSS_DECLARATIONS: LazyLock<Vec<(&'static str, Regex)>> =
-    LazyLock::new(|| declarations(r#"[^;}\n"'`]*"#));
+    LazyLock::new(|| declarations(MARKUP_VALUE));
 /// Declarations in stylesheets: the value may wrap over lines, as formatters write
 /// long shadows and shorthands, and ends at `;`, `}`, or a `{` opening a nested rule.
+const STYLESHEET_VALUE: &str = r"[^;{}]*";
 static STYLESHEET_DECLARATIONS: LazyLock<Vec<(&'static str, Regex)>> =
-    LazyLock::new(|| declarations(r"[^;{}]*"));
+    LazyLock::new(|| declarations(STYLESHEET_VALUE));
 
 fn declarations(value: &str) -> Vec<(&'static str, Regex)> {
     CSS_PROPERTIES
         .iter()
-        .map(|(rule, props)| {
-            let pattern = format!(r#"(?im)(?:^|[\s;{{"'`])(?:{props})\s*:({value})"#);
-            (*rule, Regex::new(&pattern).unwrap())
-        })
+        .map(|(rule, props)| (*rule, declaration(props, value)))
         .collect()
+}
+
+/// A declaration of one of `props` whose value, matching `value`, is group 1.
+fn declaration(props: &str, value: &str) -> Regex {
+    Regex::new(&format!(r#"(?im)(?:^|[\s;{{"'`])(?:{props})\s*:({value})"#)).unwrap()
 }
 static TAILWIND: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     TAILWIND_PREFIXES
@@ -158,6 +162,7 @@ struct Active {
     rule: &'static str,
     allow: BTreeSet<String>,
     classes: Option<GlobSet>,
+    keywords: bool,
 }
 
 /// Compiled `[rules.*]` settings, built once per scan.
@@ -188,6 +193,7 @@ impl Rules {
                     .map(|v| v.to_lowercase())
                     .collect(),
                 classes,
+                keywords: rule.keywords,
             });
         }
         Ok(Self { active })
@@ -223,8 +229,15 @@ impl Rules {
                 });
             }
         };
+        // Indented Sass ends declarations at line breaks.
+        let wraps = stylesheet && extension != Some("sass");
         for a in &self.active {
             let allowed = |literal: &str| a.allow.contains(&literal.to_lowercase());
+            if a.keywords && !dart {
+                for (offset, literal) in keyword_colors(text, stylesheet, wraps) {
+                    push(a.rule, offset, &literal);
+                }
+            }
             if a.rule != "color" {
                 if dart {
                     for (offset, literal) in dart_values(text, a.rule) {
@@ -233,8 +246,6 @@ impl Rules {
                         }
                     }
                 } else {
-                    // Indented Sass ends declarations at line breaks.
-                    let wraps = stylesheet && extension != Some("sass");
                     for (offset, literal) in css_values(text, a.rule, wraps) {
                         if !allowed(&literal) {
                             push(a.rule, offset, &literal);
@@ -328,6 +339,113 @@ fn tailwind_values(text: &str, rule: &str) -> Vec<(usize, String, Vec<String>)> 
             .collect();
         if !values.is_empty() {
             out.push((class.start(), class.as_str().to_owned(), values));
+        }
+    }
+    out
+}
+
+/// The 148 named colors of CSS Color Module Level 4, lowercase. `transparent` and
+/// `currentColor` are not among them.
+#[rustfmt::skip]
+const NAMED_COLORS: [&str; 148] = [
+    "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
+    "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
+    "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue",
+    "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki",
+    "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon",
+    "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise",
+    "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue",
+    "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold",
+    "goldenrod", "gray", "green", "greenyellow", "grey", "honeydew", "hotpink", "indianred",
+    "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon",
+    "lightblue", "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray",
+    "lightgreen", "lightgrey", "lightpink", "lightsalmon", "lightseagreen", "lightskyblue",
+    "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow", "lime",
+    "limegreen", "linen", "magenta", "maroon", "mediumaquamarine", "mediumblue",
+    "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue",
+    "mediumspringgreen", "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream",
+    "mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab",
+    "orange", "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise",
+    "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue",
+    "purple", "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon",
+    "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue",
+    "slategray", "slategrey", "snow", "springgreen", "steelblue", "tan", "teal", "thistle",
+    "tomato", "turquoise", "violet", "wheat", "white", "whitesmoke", "yellow",
+    "yellowgreen",
+];
+
+fn named_color(word: &str) -> bool {
+    NAMED_COLORS.contains(&word.to_ascii_lowercase().as_str())
+}
+
+/// CSS properties whose value may hold a color: every `*-color` longhand, vendor
+/// prefixed or not, and the shorthands and properties that take a color among others.
+const COLOR_PROPERTIES: &str = concat!(
+    r"(?:-[a-z]+-)?(?:[a-z]+-)*color|background|border(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?",
+    r"|outline|(?:box|text)-shadow|fill|stroke|column-rule|text-decoration|text-emphasis",
+);
+static COLOR_DECLARATION: LazyLock<Regex> =
+    LazyLock::new(|| declaration(COLOR_PROPERTIES, MARKUP_VALUE));
+static STYLESHEET_COLOR_DECLARATION: LazyLock<Regex> =
+    LazyLock::new(|| declaration(COLOR_PROPERTIES, STYLESHEET_VALUE));
+/// Presentation attributes that take a color, such as SVG `fill="black"`. Group 2 or 3
+/// is the quoted value.
+static COLOR_ATTRIBUTE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)(?:^|\s)(?:fill|stroke|color|stop-color)\s*=\s*(?:"([^"]*)"|'([^']*)')"#)
+        .unwrap()
+});
+/// Tailwind color utilities that take an arbitrary `-[...]` value.
+static TAILWIND_COLOR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r#"(?m)(?:^|[\s"'`{:!])((?:bg|text|border(?:-[xytrblse])?|outline|ring-offset|ring|"#,
+        r#"divide|decoration|placeholder|caret|accent|fill|stroke|shadow|from|via|to)"#,
+        r#"-\[([^\]\s"'`]+)\])"#,
+    ))
+    .unwrap()
+});
+static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9_-]+").unwrap());
+
+/// Named colors in CSS declarations, color attributes, and Tailwind arbitrary values,
+/// as (offset, literal). `stylesheet` selects the file kind and `wraps` the
+/// declaration end, as for `css_values`.
+fn keyword_colors(text: &str, stylesheet: bool, wraps: bool) -> Vec<(usize, String)> {
+    let declaration = if wraps {
+        &STYLESHEET_COLOR_DECLARATION
+    } else {
+        &COLOR_DECLARATION
+    };
+    let mut out = vec![];
+    for caps in declaration.captures_iter(text) {
+        let value = caps.get(1).unwrap();
+        let b = value.as_str().as_bytes();
+        for m in WORD.find_iter(value.as_str()) {
+            // A word after `$`, `.`, `#`, `@`, `%`, or `/` is a variable, a member, a
+            // selector, or a path, and one before `.` or `(` is a file name or a call.
+            let before = m.start().checked_sub(1).map(|i| b[i]);
+            let next = b.get(m.end()).copied();
+            if !before.is_some_and(|c| b"$.#@%/\\".contains(&c))
+                && !next.is_some_and(|c| b".(".contains(&c))
+                && named_color(m.as_str())
+            {
+                out.push((value.start() + m.start(), m.as_str().to_owned()));
+            }
+        }
+    }
+    if !stylesheet {
+        for caps in COLOR_ATTRIBUTE.captures_iter(text) {
+            let value = caps.get(1).or_else(|| caps.get(2)).unwrap();
+            let word = value.as_str().trim();
+            if named_color(word) {
+                let offset = value.start() + value.as_str().find(word).unwrap();
+                out.push((offset, word.to_owned()));
+            }
+        }
+    }
+    for caps in TAILWIND_COLOR.captures_iter(text) {
+        let inner = caps.get(2).unwrap().as_str();
+        if named_color(inner.strip_prefix("color:").unwrap_or(inner)) {
+            let class = caps.get(1).unwrap();
+            out.push((class.start(), class.as_str().to_owned()));
         }
     }
     out

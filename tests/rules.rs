@@ -376,6 +376,8 @@ fn rule_configuration_errors() {
         "[rules.spacing]\nfoo = 1\n",
         "[rules.spacing]\nallow = [\"\"]\n",
         "[rules.radius]\nclasses = [\"rounded-[\"]\n",
+        "[rules.spacing]\nkeywords = true\n",
+        "[rules.color]\nkeywords = \"yes\"\n",
         "[[exceptions]]\nrule = \"source.gap-literal\"\npath = \"a.css\"\nliteral = \"1px\"\nreason = \"x\"\n",
         "[[exceptions]]\nrule = \"source.line-height-literal\"\npath = \"a.css\"\nliteral = \"1px\"\nreason = \"x\"\n",
     ] {
@@ -476,6 +478,125 @@ fn words_ending_in_a_colon_are_not_classes() {
             f("border-width", 3, "border-2"),
             f("border-width", 4, "border"),
             f("outline", 4, "ring"),
+        ]
+    );
+}
+
+const KEYWORDS: &str = "[rules.color]\nkeywords = true\n";
+
+#[test]
+fn keyword_colors_in_stylesheets() {
+    let css = concat!(
+        ".text-white { color: black; background: url(white.png) White; }\n",
+        "a { border: 1px solid var(--ds-white); fill: $white; outline: none; }\n",
+        "b { color: transparent; caret-color: currentColor; stroke: inherit; }\n",
+        "c { box-shadow: 0 0 2px\n  Navy; border-top-color: tan; --brand-color: red; }\n",
+        "e { -webkit-text-fill-color: Snow; }\n",
+        "d { @apply bg-[white] text-white; color: #fff; }\n",
+        "$white: white;\n",
+    );
+    assert_eq!(
+        findings("a.css", css, KEYWORDS),
+        vec![
+            f("color", 1, "black"),
+            f("color", 1, "White"),
+            f("color", 5, "Navy"),
+            f("color", 5, "tan"),
+            f("color", 6, "Snow"),
+            f("color", 7, "bg-[white]"),
+            f("color", 7, "#fff"),
+        ]
+    );
+    // Without `keywords`, only the hex color is reported.
+    assert_eq!(
+        findings("a.css", css, "[rules.color]\n"),
+        vec![f("color", 7, "#fff")]
+    );
+    assert_eq!(findings("a.css", css, ""), vec![f("color", 7, "#fff")]);
+}
+
+#[test]
+fn keyword_colors_in_markup() {
+    let tsx = concat!(
+        "const x = <svg fill=\"black\" stroke='Red'><stop stop-color=\"gold\" /></svg>;\n",
+        "const y = <p style=\"color: white; margin: 0\" color=\"none\" fill=\"currentColor\" />;\n",
+        "const z = <div className=\"text-white bg-[black] md:text-[color:tan] bg-[#fff]\" />;\n",
+        "const w = <rect :fill=\"black\" fill=\"black red\" />;\n",
+    );
+    assert_eq!(
+        findings("a.tsx", tsx, KEYWORDS),
+        vec![
+            f("color", 1, "black"),
+            f("color", 1, "Red"),
+            f("color", 1, "gold"),
+            f("color", 2, "white"),
+            f("color", 3, "bg-[black]"),
+            f("color", 3, "text-[color:tan]"),
+            f("color", 3, "#fff"),
+        ]
+    );
+    let vue =
+        "<template><svg fill=\"white\" /></template>\n<style>\na { color: maroon }\n</style>\n";
+    assert_eq!(
+        findings("a.vue", vue, KEYWORDS),
+        vec![f("color", 1, "white"), f("color", 3, "maroon")]
+    );
+    // Flutter names its colors through `Colors`, which `keywords` does not cover.
+    assert_eq!(
+        findings(
+            "a.dart",
+            "final c = Colors.black; // color: black\n",
+            KEYWORDS
+        ),
+        vec![]
+    );
+}
+
+#[test]
+fn keyword_colors_with_classes_and_exceptions() {
+    // A class matched both as an arbitrary value and by `classes` is reported once.
+    assert_eq!(
+        findings(
+            "a.html",
+            "<p class=\"bg-[white]\"></p>\n",
+            "[rules.color]\nkeywords = true\nclasses = [\"bg-*\"]\n"
+        ),
+        vec![f("color", 1, "bg-[white]")]
+    );
+    let extra = format!(
+        "{KEYWORDS}[[exceptions]]\nrule = \"source.color-literal\"\npath = \"a.css\"\nliteral = \"Black\"\nreason = \"print stylesheet\"\n"
+    );
+    assert_eq!(
+        findings(
+            "a.css",
+            "a { color: Black; }\nb { color: black; }\n",
+            &extra
+        ),
+        vec![f("color", 2, "black")]
+    );
+}
+
+#[test]
+fn hex_after_a_word_or_url_character_is_not_a_color() {
+    let md = concat!(
+        "See issue/#271 and https://example.com/page#abc or &#123;\n",
+        "a_#abc b#def shadow-[0_1px_#000]\n",
+        "a { color: #fff; background:#abc; }\n",
+        "<p style=\"color:#123\" class=\"bg-[#456]\">#789</p>\n",
+        "<rect fill=#fff :fill=\"isDark?#eee:#000\" />\n",
+    );
+    assert_eq!(
+        findings("a.html", md, ""),
+        vec![
+            f("color", 2, "#000"),
+            f("color", 3, "#fff"),
+            f("color", 3, "#abc"),
+            f("color", 4, "#123"),
+            f("color", 4, "#456"),
+            f("color", 4, "#789"),
+            f("color", 5, "#fff"),
+            f("color", 5, "#eee"),
+            f("color", 5, "#000"),
         ]
     );
 }
