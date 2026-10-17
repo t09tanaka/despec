@@ -338,7 +338,6 @@ static APPLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)(?:^|[\s;{])@a
 /// Class names in the arguments of each `@apply`, which end at `;`, `}`, or, when
 /// `line_ends` is set, a line break outside brackets, with the byte range of each
 /// `@apply` and its arguments. `!important` is not a class.
-#[allow(clippy::type_complexity)]
 fn apply_classes(text: &str, line_ends: bool) -> (Vec<(usize, &str)>, Vec<Range<usize>>) {
     let b = text.as_bytes();
     let mut out = vec![];
