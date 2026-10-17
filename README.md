@@ -155,7 +155,8 @@ Detected forms, after comments are removed (Flutter calls may span lines):
 In a CSS declaration every nonzero number with a unit (`px`, `rem`, `em`, `%`,
 viewport, container, and absolute units) is one finding, including later values of a
 shorthand, `var()` fallbacks, `calc()` terms, and negative values; `literal` is the
-number and unit, such as `12px`. The property must start a line or follow
+number and unit, such as `12px`, with its sign (`allow = ["8px"]` does not cover
+`-8px`). The property must start a line or follow
 whitespace, `;`, `{`, or a quote (including a backtick), and the value ends at `;`,
 `}`, a line break, or a quote, so a value continued on the next line is not checked. A number directly after a letter, digit, `_`, `-`, `.`, `$`, or `#` is part of
 a name and ignored. Tailwind classes may carry variants (`md:`), `!`, and a negative
