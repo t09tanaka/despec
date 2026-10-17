@@ -6,6 +6,7 @@ use globset::GlobSet;
 use regex::Regex;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ops::Range,
     sync::LazyLock,
 };
 
@@ -198,10 +199,20 @@ impl Rules {
         let stylesheet = matches!(extension, Some("css" | "scss" | "sass" | "less"));
         let mut out = vec![];
         let mut seen = BTreeSet::new();
-        let words = if dart || stylesheet || self.active.iter().all(|a| a.classes.is_none()) {
+        let words = if dart || self.active.iter().all(|a| a.classes.is_none()) {
             vec![]
+        } else if stylesheet {
+            apply_classes(text, extension == Some("sass")).0
         } else {
-            class_names(text)
+            // Words inside an `@apply` come from it alone, so its `;`, `!important`,
+            // and the `@apply` keyword never reach the plain split.
+            let (mut words, spans) = apply_classes(text, false);
+            words.extend(
+                class_names(text)
+                    .into_iter()
+                    .filter(|(o, _)| !spans.iter().any(|s| s.contains(o))),
+            );
+            words
         };
         let mut push = |rule: &'static str, offset: usize, literal: &str| {
             if seen.insert((rule, offset)) {
@@ -322,9 +333,43 @@ fn tailwind_values(text: &str, rule: &str) -> Vec<(usize, String, Vec<String>)> 
     out
 }
 
+static APPLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)(?:^|[\s;{])@apply\s").unwrap());
+
+/// Class names in the arguments of each `@apply`, which end at `;`, `}`, or, when
+/// `line_ends` is set, a line break outside brackets, with the byte range of each
+/// `@apply` and its arguments. `!important` is not a class.
+fn apply_classes(text: &str, line_ends: bool) -> (Vec<(usize, &str)>, Vec<Range<usize>>) {
+    let b = text.as_bytes();
+    let mut out = vec![];
+    let mut spans = vec![];
+    for m in APPLY.find_iter(text) {
+        let from = m.end();
+        let mut to = from;
+        let mut depth = 0usize;
+        while to < b.len() {
+            match b[to] {
+                b'[' => depth += 1,
+                b']' => depth = depth.saturating_sub(1),
+                b';' | b'}' if depth == 0 => break,
+                b'\n' if line_ends && depth == 0 => break,
+                _ => (),
+            }
+            to += 1;
+        }
+        spans.push(m.start()..to + 1);
+        for (offset, class) in class_names(&text[from..to]) {
+            let offset = from + offset;
+            if !(class == "important" && text[..offset].ends_with('!')) {
+                out.push((offset, class));
+            }
+        }
+    }
+    (out, spans)
+}
+
 /// Class-like words split at whitespace, and at quotes, parentheses, braces, and
-/// commas outside brackets, with a trailing `:` (an object key), variants, `!`, and a
-/// leading `-` removed.
+/// commas outside brackets, with variants, `!`, and a leading `-` removed. A word
+/// ending in `:` is an object key or a CSS property, not a class.
 fn class_names(text: &str) -> Vec<(usize, &str)> {
     let mut out = vec![];
     let mut start = 0;
@@ -345,7 +390,12 @@ fn class_names(text: &str) -> Vec<(usize, &str)> {
             continue;
         }
         let word = &text[start..i];
-        let word = word.strip_suffix(':').unwrap_or(word);
+        let begin = start;
+        start = i + 1;
+        depth = 0;
+        if word.ends_with(':') {
+            continue;
+        }
         let mut variant_end = 0;
         let mut d = 0usize;
         for (j, c) in word.bytes().enumerate() {
@@ -356,7 +406,7 @@ fn class_names(text: &str) -> Vec<(usize, &str)> {
                 _ => (),
             }
         }
-        let mut offset = start + variant_end;
+        let mut offset = begin + variant_end;
         let mut class = &word[variant_end..];
         for prefix in ["!", "-"] {
             if let Some(rest) = class.strip_prefix(prefix) {
@@ -368,8 +418,6 @@ fn class_names(text: &str) -> Vec<(usize, &str)> {
         if !class.is_empty() {
             out.push((offset, class));
         }
-        start = i + 1;
-        depth = 0;
     }
     out
 }

@@ -288,16 +288,16 @@ fn forbidden_classes() {
         findings("a.vue", "<b class=\"bg-red-500 rounded-[8px]\" />\n", rules),
         vec![f("color", 1, "bg-red-500"), f("radius", 1, "rounded-[8px]")]
     );
-    // Object keys count, and an unmatched bracket does not swallow later words.
+    // Quoted object keys count, and an unmatched bracket does not swallow later words.
     assert_eq!(
         findings(
             "a.tsx",
-            "const open = \"[\";\n<b className={cn({ rounded: on })} />\n",
+            "const open = \"[\";\n<b className={cn({ 'rounded': on })} />\n",
             rules
         ),
         vec![f("radius", 2, "rounded")]
     );
-    // Stylesheets and Dart are never matched against class names.
+    // Outside `@apply`, stylesheets are never matched against class names.
     assert_eq!(
         findings("a.css", ".rounded { padding: var(--x); }\n", rules),
         vec![]
@@ -383,4 +383,99 @@ fn rule_configuration_errors() {
         let v = check(&d);
         assert_eq!(v["diagnostics"][0]["rule_id"], "config.invalid", "{extra}");
     }
+}
+
+#[test]
+fn apply_classes_in_stylesheets() {
+    let rules = "[rules.radius]\nclasses = [\"rounded-*\"]\n[rules.spacing]\nclasses = [\"p-*\"]\n";
+    let css = concat!(
+        ".card {\n",
+        "  @apply p-4 md:rounded-lg !important;\n",
+        "  padding: var(--x);\n",
+        "  margin: 0;\n",
+        "}\n",
+        ".b { @apply\n  rounded-md\n  hover:p-2 }\n",
+    );
+    let expected = vec![
+        f("spacing", 2, "p-4"),
+        f("radius", 2, "rounded-lg"),
+        f("radius", 7, "rounded-md"),
+        f("spacing", 8, "p-2"),
+    ];
+    assert_eq!(findings("a.css", css, rules), expected);
+    assert_eq!(findings("a.scss", css, rules), expected);
+    assert_eq!(findings("a.less", css, rules), expected);
+    // Indented Sass ends `@apply` at the line break.
+    assert_eq!(
+        findings(
+            "a.sass",
+            ".card\n  @apply p-4 rounded-lg\n  rounded-sm: x\n",
+            rules
+        ),
+        vec![f("spacing", 2, "p-4"), f("radius", 2, "rounded-lg")]
+    );
+    // Declarations after `@apply` are checked as before, and an arbitrary value found
+    // by both checks is reported once.
+    assert_eq!(
+        findings(
+            "a.css",
+            "a { @apply p-[12px] rounded-lg; padding: 8px; }\n",
+            rules
+        ),
+        vec![
+            f("spacing", 1, "p-[12px]"),
+            f("radius", 1, "rounded-lg"),
+            f("spacing", 1, "8px"),
+        ]
+    );
+    // Vue `<style>`: `@apply` counts with its trailing `;` removed, and in
+    // `border: 1px` only the width is reported, not `border` as a class.
+    let vue = concat!(
+        "<template><b class=\"border\" /></template>\n",
+        "<style>\n",
+        ".a { @apply p-4 rounded-lg; border: 1px solid; }\n",
+        ".b {\n  @apply rounded-md\n    p-2;\n}\n",
+        "</style>\n",
+    );
+    let border = "[rules.border-width]\nclasses = [\"border\", \"border-*\"]\n";
+    // An allowed class in `@apply` stays allowed, and `!important` and a bracketed
+    // `;` neither count nor end the arguments.
+    assert_eq!(
+        findings(
+            "a.vue",
+            "<style>\n.a { @apply p-4 bg-[url('a;b')] rounded-lg; }\n.b { @apply p-2 !important }\n</style>\n",
+            "[rules.radius]\nclasses = [\"rounded-*\"]\nallow = [\"rounded-lg\"]\n[rules.spacing]\nclasses = [\"p-*\", \"bg-*\", \"important*\", \"@apply\"]\nallow = [\"bg-[url('a;b')]\"]\n"
+        ),
+        vec![f("spacing", 2, "p-4"), f("spacing", 3, "p-2")]
+    );
+    assert_eq!(
+        findings("a.vue", vue, &format!("{rules}{border}")),
+        vec![
+            f("border-width", 1, "border"),
+            f("spacing", 3, "p-4"),
+            f("radius", 3, "rounded-lg"),
+            f("border-width", 3, "1px"),
+            f("radius", 5, "rounded-md"),
+            f("spacing", 6, "p-2"),
+        ]
+    );
+}
+
+#[test]
+fn words_ending_in_a_colon_are_not_classes() {
+    let rules = "[rules.border-width]\nclasses = [\"border\", \"border-*\"]\n[rules.outline]\nclasses = [\"ring\"]\n";
+    let tsx = concat!(
+        "const look = { border: '1px solid', ring: true };\n",
+        "type Box = { border: number };\n",
+        "const flags = { 'border-2': on };\n",
+        "<b className=\"border ring\" />\n",
+    );
+    assert_eq!(
+        findings("a.tsx", tsx, rules),
+        vec![
+            f("border-width", 3, "border-2"),
+            f("border-width", 4, "border"),
+            f("outline", 4, "ring"),
+        ]
+    );
 }
