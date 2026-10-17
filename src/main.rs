@@ -62,6 +62,7 @@ fn run(cli: &Cli) -> Result<(usize, Vec<Diagnostic>), (String, String)> {
     let input = fs::read_to_string(&cli.config).map_err(|e| fail(e.to_string()))?;
     let c: Config = toml::from_str(&input).map_err(|e| fail(e.to_string()))?;
     c.validate().map_err(fail)?;
+    despec::config::check_rule_tables(&input).map_err(fail)?;
     despec::catalog::validate(&c.tokens, &c.modes).map_err(|e| ("token.invalid".into(), e))?;
     let root = cli
         .config

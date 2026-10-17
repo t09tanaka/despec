@@ -13,6 +13,8 @@ clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+# Only to tell an explicit `[rules.<id>]` table from one implied by its overrides.
+toml_edit = { version = "0.22", default-features = false, features = ["parse"] }
 regex = "1"
 globset = "0.4"
 walkdir = "2"

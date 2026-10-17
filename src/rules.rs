@@ -158,16 +158,48 @@ static DART_BOX_SHADOW: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bBoxShadow\s*\(").unwrap());
 static DART_OFFSET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bOffset\s*\(").unwrap());
 
-struct Active {
-    rule: &'static str,
+/// The `allow`, `classes`, and `keywords` in effect for a rule, from its table or
+/// from one of its overrides.
+struct Values {
     allow: BTreeSet<String>,
     classes: Option<GlobSet>,
     keywords: bool,
 }
 
+impl Values {
+    fn new(allow: Option<&[String]>, classes: &[String], keywords: bool) -> Result<Self, String> {
+        Ok(Self {
+            allow: allow
+                .into_iter()
+                .flatten()
+                .map(|v| v.to_lowercase())
+                .collect(),
+            classes: if classes.is_empty() {
+                None
+            } else {
+                Some(crate::scan::globs(classes)?)
+            },
+            keywords,
+        })
+    }
+}
+
+struct Active {
+    rule: &'static str,
+    values: Values,
+    overrides: Vec<(GlobSet, Values)>,
+}
+
 /// Compiled `[rules.*]` settings, built once per scan.
 pub struct Rules {
     active: Vec<Active>,
+}
+
+/// The rules as they apply to one file.
+pub struct Selection<'a> {
+    active: Vec<(&'static str, &'a Values)>,
+    /// (rule, index) of each override chosen for the file.
+    pub overrides: Vec<(&'static str, usize)>,
 }
 
 impl Rules {
@@ -179,33 +211,58 @@ impl Rules {
                 .chain(DIMENSION_RULES)
                 .find(|r| r == id)
                 .ok_or_else(|| format!("unknown rule {id}"))?;
-            let classes = if rule.classes.is_empty() {
-                None
-            } else {
-                Some(crate::scan::globs(&rule.classes)?)
-            };
+            let mut overrides = vec![];
+            for o in &rule.overrides {
+                // A key the override leaves out keeps the table's value.
+                let values = Values::new(
+                    o.allow.as_deref().or(rule.allow.as_deref()),
+                    o.classes.as_deref().unwrap_or(&rule.classes),
+                    o.keywords.unwrap_or(rule.keywords),
+                )?;
+                overrides.push((crate::scan::globs(&o.paths)?, values));
+            }
             active.push(Active {
                 rule: rule_id,
-                allow: rule
-                    .allow
-                    .iter()
-                    .flatten()
-                    .map(|v| v.to_lowercase())
-                    .collect(),
-                classes,
-                keywords: rule.keywords,
+                values: Values::new(rule.allow.as_deref(), &rule.classes, rule.keywords)?,
+                overrides,
             });
         }
         Ok(Self { active })
     }
 
+    /// Resolves each rule for `path`, relative to the configuration directory: the
+    /// first override whose `paths` match it, otherwise the rule's table.
+    pub fn select(&self, path: &std::path::Path) -> Selection<'_> {
+        let mut selection = Selection {
+            active: vec![],
+            overrides: vec![],
+        };
+        for a in &self.active {
+            let values = match a
+                .overrides
+                .iter()
+                .position(|(paths, _)| paths.is_match(path))
+            {
+                Some(i) => {
+                    selection.overrides.push((a.rule, i));
+                    &a.overrides[i].1
+                }
+                None => &a.values,
+            };
+            selection.active.push((a.rule, values));
+        }
+        selection
+    }
+}
+
+impl Selection<'_> {
     /// Findings in `text`, in no particular order; the caller sorts by offset.
     pub fn find(&self, text: &str, extension: Option<&str>) -> Vec<Finding> {
         let dart = extension == Some("dart");
         let stylesheet = matches!(extension, Some("css" | "scss" | "sass" | "less"));
         let mut out = vec![];
         let mut seen = BTreeSet::new();
-        let words = if dart || self.active.iter().all(|a| a.classes.is_none()) {
+        let words = if dart || self.active.iter().all(|(_, v)| v.classes.is_none()) {
             vec![]
         } else if stylesheet {
             apply_classes(text, extension == Some("sass")).0
@@ -231,29 +288,29 @@ impl Rules {
         };
         // Indented Sass ends declarations at line breaks.
         let wraps = stylesheet && extension != Some("sass");
-        for a in &self.active {
+        for &(rule, a) in &self.active {
             let allowed = |literal: &str| a.allow.contains(&literal.to_lowercase());
             if a.keywords && !dart {
                 for (offset, literal) in keyword_colors(text, stylesheet, wraps) {
-                    push(a.rule, offset, &literal);
+                    push(rule, offset, &literal);
                 }
             }
-            if a.rule != "color" {
+            if rule != "color" {
                 if dart {
-                    for (offset, literal) in dart_values(text, a.rule) {
+                    for (offset, literal) in dart_values(text, rule) {
                         if !is_zero(&literal) && !allowed(&literal) {
-                            push(a.rule, offset, &literal);
+                            push(rule, offset, &literal);
                         }
                     }
                 } else {
-                    for (offset, literal) in css_values(text, a.rule, wraps) {
+                    for (offset, literal) in css_values(text, rule, wraps) {
                         if !allowed(&literal) {
-                            push(a.rule, offset, &literal);
+                            push(rule, offset, &literal);
                         }
                     }
-                    for (offset, literal, values) in tailwind_values(text, a.rule) {
+                    for (offset, literal, values) in tailwind_values(text, rule) {
                         if !allowed(&literal) && !values.iter().all(|v| allowed(v)) {
-                            push(a.rule, offset, &literal);
+                            push(rule, offset, &literal);
                         }
                     }
                 }
@@ -261,7 +318,7 @@ impl Rules {
             if let Some(classes) = &a.classes {
                 for &(offset, class) in &words {
                     if classes.is_match(class) && !allowed(class) {
-                        push(a.rule, offset, class);
+                        push(rule, offset, class);
                     }
                 }
             }
