@@ -140,7 +140,7 @@ case-insensitively (`"16"` does not cover `"16.0"`), and `classes`, class-name
 globs to forbid. `[rules.color]` accepts only `classes`. Zero is always accepted,
 with or without a unit. Unknown rule IDs and keys are configuration errors.
 
-Detected forms, after comments are removed (Flutter calls may span lines):
+Detected forms, after comments are removed:
 
 | Rule | CSS property (CSS, Sass, Vue, HTML, JSX/TSX) | Tailwind `-[...]` prefix | Flutter (`.dart`) |
 |---|---|---|---|
@@ -157,8 +157,11 @@ viewport, container, and absolute units) is one finding, including later values 
 shorthand, `var()` fallbacks, `calc()` terms, and negative values; `literal` is the
 number and unit, such as `12px`, with its sign (`allow = ["8px"]` does not cover
 `-8px`). The property must start a line or follow
-whitespace, `;`, `{`, or a quote (including a backtick), and the value ends at `;`,
-`}`, a line break, or a quote, so a value continued on the next line is not checked. A number directly after a letter, digit, `_`, `-`, `.`, `$`, or `#` is part of
+whitespace, `;`, `{`, or a quote (including a backtick). In CSS, SCSS, and Less
+files the value ends at `;`, `}`, or a `{` opening a nested rule, so values wrapped
+over several lines are checked and each number reports its own line. Elsewhere,
+such as in indented `.sass`, style attributes, and embedded CSS, the value ends at `;`, `}`, a line
+break, or a quote. A number directly after a letter, digit, `_`, `-`, `.`, `$`, or `#` is part of
 a name and ignored. Tailwind classes may carry variants (`md:`), `!`, and a negative
 `-`, which are removed from `literal` (`md:-mt-[4px]` reports `mt-[4px]`). A class
 counts only when its value holds a nonzero unit number; it is accepted when `allow`

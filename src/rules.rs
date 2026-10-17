@@ -62,15 +62,24 @@ const TAILWIND_PREFIXES: [(&str, &str); 7] = [
     ("font-size", r"text"),
 ];
 
-static CSS_DECLARATIONS: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
+/// Declarations in markup and scripts: the value ends at `;`, `}`, a line break, or a
+/// quote, because it usually sits inside an attribute or a string.
+static CSS_DECLARATIONS: LazyLock<Vec<(&'static str, Regex)>> =
+    LazyLock::new(|| declarations(r#"[^;}\n"'`]*"#));
+/// Declarations in stylesheets: the value may wrap over lines, as formatters write
+/// long shadows and shorthands, and ends at `;`, `}`, or a `{` opening a nested rule.
+static STYLESHEET_DECLARATIONS: LazyLock<Vec<(&'static str, Regex)>> =
+    LazyLock::new(|| declarations(r"[^;{}]*"));
+
+fn declarations(value: &str) -> Vec<(&'static str, Regex)> {
     CSS_PROPERTIES
         .iter()
         .map(|(rule, props)| {
-            let pattern = format!(r#"(?im)(?:^|[\s;{{"'`])(?:{props})\s*:([^;}}\n"'`]*)"#);
+            let pattern = format!(r#"(?im)(?:^|[\s;{{"'`])(?:{props})\s*:({value})"#);
             (*rule, Regex::new(&pattern).unwrap())
         })
         .collect()
-});
+}
 static TAILWIND: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     TAILWIND_PREFIXES
         .iter()
@@ -213,7 +222,9 @@ impl Rules {
                         }
                     }
                 } else {
-                    for (offset, literal) in css_values(text, a.rule) {
+                    // Indented Sass ends declarations at line breaks.
+                    let wraps = stylesheet && extension != Some("sass");
+                    for (offset, literal) in css_values(text, a.rule, wraps) {
                         if !allowed(&literal) {
                             push(a.rule, offset, &literal);
                         }
@@ -267,8 +278,13 @@ fn is_zero(literal: &str) -> bool {
     literal[..end].parse::<f64>().is_ok_and(|n| n == 0.0)
 }
 
-fn css_values(text: &str, rule: &str) -> Vec<(usize, String)> {
-    let re = &CSS_DECLARATIONS.iter().find(|(r, _)| *r == rule).unwrap().1;
+fn css_values(text: &str, rule: &str, stylesheet: bool) -> Vec<(usize, String)> {
+    let declarations = if stylesheet {
+        &STYLESHEET_DECLARATIONS
+    } else {
+        &CSS_DECLARATIONS
+    };
+    let re = &declarations.iter().find(|(r, _)| *r == rule).unwrap().1;
     let mut out = vec![];
     for caps in re.captures_iter(text) {
         let value = caps.get(1).unwrap();

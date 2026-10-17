@@ -125,6 +125,55 @@ fn css_lookalikes_are_not_dimensions() {
 }
 
 #[test]
+fn stylesheet_values_wrap_over_lines() {
+    let css = concat!(
+        "a {\n",
+        "  box-shadow:\n",
+        "    0 1px 2px rgba(0,0,0,.1),\n",
+        "    0 4px 8px rgba(0,0,0,.2);\n",
+        "  margin:\n",
+        "    8px\n",
+        "    16px;\n",
+        "}\n",
+        "a { margin: 4px }\n",
+        "a { padding: 3px\n  b { color: var(--x) } }\n",
+    );
+    let expected = vec![
+        f("shadow", 3, "1px"),
+        f("shadow", 3, "2px"),
+        f("color", 3, "rgba(0,0,0,.1)"),
+        f("shadow", 4, "4px"),
+        f("shadow", 4, "8px"),
+        f("color", 4, "rgba(0,0,0,.2)"),
+        f("spacing", 6, "8px"),
+        f("spacing", 7, "16px"),
+        f("spacing", 9, "4px"),
+        f("spacing", 10, "3px"),
+    ];
+    for file in ["a.css", "a.scss", "a.less"] {
+        assert_eq!(findings(file, css, ALL_RULES), expected, "{file}");
+    }
+    // Indented Sass has no semicolons, so its values still end at the line break.
+    assert_eq!(
+        findings(
+            "a.sass",
+            "a\n  margin: 4px\n  width: 10px 20px\n",
+            ALL_RULES
+        ),
+        vec![f("spacing", 2, "4px")]
+    );
+    // Markup still ends a value at the line break.
+    assert_eq!(
+        findings(
+            "a.vue",
+            "<style>\na {\n  margin:\n    8px;\n}\n</style>\n",
+            ALL_RULES
+        ),
+        vec![]
+    );
+}
+
+#[test]
 fn css_in_js_templates() {
     assert_eq!(
         findings(
