@@ -224,9 +224,18 @@ lists the class or every such number. `text-[...]` holding a color (`#fff`,
 number literals at the top level of the listed arguments are reported, so names
 such as `ds.space4` and nested calls such as `gap(4)` are not. `classes` applies to
 files other than CSS, Sass, Less, and Dart: words split at whitespace, quotes,
-parentheses, braces, and commas, with a trailing `:` (as in `{ rounded: on }`),
-variants, `!`, and `-` removed, are matched
-against the globs, and `literal` is the class name.
+parentheses, braces, and commas, with variants, `!`, and `-` removed, are matched
+against the globs, and `literal` is the class name. A word ending in `:` is an
+object key, a type field, or a CSS property, never a class, so
+`{ border: 'var(--x)' }` and `border: 1px` in a `<style>` block do not match
+`border`; write keys that hold class names in quotes (`{ 'rounded-lg': on }`).
+This is a breaking change in 0.6.0: earlier versions removed the trailing `:` and
+counted an unquoted key such as `{ rounded: on }`.
+The arguments of `@apply` are matched too, in CSS, SCSS, Less, and Sass files and
+in `<style>` blocks: they end at `;` or `}`, and also at a line break in indented
+`.sass` and outside stylesheets, and `!important` is not a class. Other CSS
+declarations are not matched against class names. An arbitrary value such as
+`@apply p-[12px]` that both checks find under the same rule is reported once.
 
 Not detected: camelCase style objects in JavaScript (`marginTop: 8`, `padding:
 "8px"`), `line-height` and `letter-spacing`, custom property and Sass variable
