@@ -125,6 +125,18 @@ fn css_lookalikes_are_not_dimensions() {
 }
 
 #[test]
+fn css_in_js_templates() {
+    assert_eq!(
+        findings(
+            "a.ts",
+            "const a = css`padding: 8px;`;\nconst b = `margin: 4px`;\n",
+            ALL_RULES
+        ),
+        vec![f("spacing", 1, "8px"), f("spacing", 2, "4px")]
+    );
+}
+
+#[test]
 fn color_and_dimension_on_one_line() {
     assert_eq!(
         findings("a.css", "a { border: 2px solid #ccc; }\n", ALL_RULES),
@@ -227,6 +239,15 @@ fn forbidden_classes() {
         findings("a.vue", "<b class=\"bg-red-500 rounded-[8px]\" />\n", rules),
         vec![f("color", 1, "bg-red-500"), f("radius", 1, "rounded-[8px]")]
     );
+    // Object keys count, and an unmatched bracket does not swallow later words.
+    assert_eq!(
+        findings(
+            "a.tsx",
+            "const open = \"[\";\n<b className={cn({ rounded: on })} />\n",
+            rules
+        ),
+        vec![f("radius", 2, "rounded")]
+    );
     // Stylesheets and Dart are never matched against class names.
     assert_eq!(
         findings("a.css", ".rounded { padding: var(--x); }\n", rules),
@@ -275,12 +296,27 @@ fn dimension_exceptions_match_rule_and_literal() {
         "use a spacing token instead of 12px"
     );
     assert!(v["diagnostics"][2].get("literal").is_none());
+    assert!(
+        v["diagnostics"][2]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("exception count mismatch for 12px:"),
+        "{v}"
+    );
     let d = project(
         "a.css",
         "a {}\n",
         &exception("source.spacing-literal", "12px", 1),
     );
-    assert_eq!(check(&d)["diagnostics"][0]["rule_id"], "exception.unused");
+    let v = check(&d);
+    assert_eq!(v["diagnostics"][0]["rule_id"], "exception.unused");
+    assert!(
+        v["diagnostics"][0]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("exception count mismatch for source.spacing-literal 12px:"),
+        "{v}"
+    );
 }
 
 #[test]
@@ -291,6 +327,7 @@ fn rule_configuration_errors() {
         "[rules.spacing]\nfoo = 1\n",
         "[rules.spacing]\nallow = [\"\"]\n",
         "[rules.radius]\nclasses = [\"rounded-[\"]\n",
+        "[[exceptions]]\nrule = \"source.gap-literal\"\npath = \"a.css\"\nliteral = \"1px\"\nreason = \"x\"\n",
         "[[exceptions]]\nrule = \"source.line-height-literal\"\npath = \"a.css\"\nliteral = \"1px\"\nreason = \"x\"\n",
     ] {
         let d = project("a.css", "a {}\n", extra);

@@ -171,6 +171,19 @@ impl Config {
             }
         }
         for e in &self.exceptions {
+            if let Some(rule) = e
+                .rule
+                .strip_prefix("source.")
+                .and_then(|r| r.strip_suffix("-literal"))
+                && rule != "color"
+                && crate::rules::DIMENSION_RULES.contains(&rule)
+                && !self.rules.contains_key(rule)
+            {
+                return Err(format!(
+                    "exception for {} requires a [rules.{rule}] table",
+                    e.rule
+                ));
+            }
             if !e
                 .rule
                 .strip_prefix("source.")

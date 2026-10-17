@@ -133,13 +133,14 @@ Colors are always checked. Seven dimension rules run only when their table is
 present: `[rules.spacing]`, `[rules.gap]`, `[rules.border-width]`,
 `[rules.outline]`, `[rules.shadow]`, `[rules.radius]`, and `[rules.font-size]`.
 Their findings use rule IDs such as `source.spacing-literal` and work with
-`[[exceptions]]` exactly like colors; an exception matches only its own rule. A
+`[[exceptions]]` exactly like colors; an exception matches only its own rule, and
+an exception for a dimension rule requires that rule's table. A
 table accepts only `allow`, values to accept compared as written but
 case-insensitively (`"16"` does not cover `"16.0"`), and `classes`, class-name
 globs to forbid. `[rules.color]` accepts only `classes`. Zero is always accepted,
 with or without a unit. Unknown rule IDs and keys are configuration errors.
 
-Detected forms, after comments are removed, including values split over lines:
+Detected forms, after comments are removed (Flutter calls may span lines):
 
 | Rule | CSS property (CSS, Sass, Vue, HTML, JSX/TSX) | Tailwind `-[...]` prefix | Flutter (`.dart`) |
 |---|---|---|---|
@@ -155,8 +156,8 @@ In a CSS declaration every nonzero number with a unit (`px`, `rem`, `em`, `%`,
 viewport, container, and absolute units) is one finding, including later values of a
 shorthand, `var()` fallbacks, `calc()` terms, and negative values; `literal` is the
 number and unit, such as `12px`. The property must start a line or follow
-whitespace, `;`, `{`, or a quote, and the value ends at `;`, `}`, a line break, or a
-quote. A number directly after a letter, digit, `_`, `-`, `.`, `$`, or `#` is part of
+whitespace, `;`, `{`, or a quote (including a backtick), and the value ends at `;`,
+`}`, a line break, or a quote, so a value continued on the next line is not checked. A number directly after a letter, digit, `_`, `-`, `.`, `$`, or `#` is part of
 a name and ignored. Tailwind classes may carry variants (`md:`), `!`, and a negative
 `-`, which are removed from `literal` (`md:-mt-[4px]` reports `mt-[4px]`). A class
 counts only when its value holds a nonzero unit number; it is accepted when `allow`
@@ -165,7 +166,8 @@ lists the class or every such number. `text-[...]` holding a color (`#fff`,
 number literals at the top level of the listed arguments are reported, so names
 such as `ds.space4` and nested calls such as `gap(4)` are not. `classes` applies to
 files other than CSS, Sass, Less, and Dart: words split at whitespace, quotes,
-parentheses, braces, and commas, with variants, `!`, and `-` removed, are matched
+parentheses, braces, and commas, with a trailing `:` (as in `{ rounded: on }`),
+variants, `!`, and `-` removed, are matched
 against the globs, and `literal` is the class name.
 
 Not detected: camelCase style objects in JavaScript (`marginTop: 8`, `padding:

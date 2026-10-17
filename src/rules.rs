@@ -2,7 +2,7 @@
 //! values, Flutter constructor arguments, and forbidden class names. Like the color
 //! check, this reads comment-stripped text and does not parse any language.
 use crate::config::RuleConfig;
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::GlobSet;
 use regex::Regex;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -66,7 +66,7 @@ static CSS_DECLARATIONS: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(||
     CSS_PROPERTIES
         .iter()
         .map(|(rule, props)| {
-            let pattern = format!(r#"(?im)(?:^|[\s;{{"'])(?:{props})\s*:([^;}}\n"']*)"#);
+            let pattern = format!(r#"(?im)(?:^|[\s;{{"'`])(?:{props})\s*:([^;}}\n"'`]*)"#);
             (*rule, Regex::new(&pattern).unwrap())
         })
         .collect()
@@ -156,23 +156,18 @@ pub struct Rules {
 }
 
 impl Rules {
+    /// Expects a configuration that passed `Config::validate`.
     pub fn new(config: &BTreeMap<String, RuleConfig>) -> Result<Self, String> {
         let mut active = vec![];
         for (id, rule) in config {
-            let Some(rule_id) = std::iter::once("color")
+            let rule_id = std::iter::once("color")
                 .chain(DIMENSION_RULES)
                 .find(|r| r == id)
-            else {
-                return Err(format!("unknown rule {id}"));
-            };
+                .ok_or_else(|| format!("unknown rule {id}"))?;
             let classes = if rule.classes.is_empty() {
                 None
             } else {
-                let mut b = GlobSetBuilder::new();
-                for class in &rule.classes {
-                    b.add(Glob::new(class).map_err(|e| e.to_string())?);
-                }
-                Some(b.build().map_err(|e| e.to_string())?)
+                Some(crate::scan::globs(&rule.classes)?)
             };
             active.push(Active {
                 rule: rule_id,
@@ -194,6 +189,11 @@ impl Rules {
         let stylesheet = matches!(extension, Some("css" | "scss" | "sass" | "less"));
         let mut out = vec![];
         let mut seen = BTreeSet::new();
+        let words = if dart || stylesheet || self.active.iter().all(|a| a.classes.is_none()) {
+            vec![]
+        } else {
+            class_names(text)
+        };
         let mut push = |rule: &'static str, offset: usize, literal: &str| {
             if seen.insert((rule, offset)) {
                 out.push(Finding {
@@ -225,11 +225,8 @@ impl Rules {
                     }
                 }
             }
-            if let Some(classes) = &a.classes
-                && !dart
-                && !stylesheet
-            {
-                for (offset, class) in class_names(text) {
+            if let Some(classes) = &a.classes {
+                for &(offset, class) in &words {
                     if classes.is_match(class) && !allowed(class) {
                         push(a.rule, offset, class);
                     }
@@ -245,18 +242,21 @@ impl Rules {
 /// `--space-12px` or `$gap2`; a `-` after such a character is part of the name too,
 /// otherwise it is the sign of a negative value.
 fn unit_numbers(value: &str) -> Vec<(usize, String)> {
-    let b = value.as_bytes();
     UNIT_NUMBER
         .find_iter(value)
-        .filter(|m| {
-            let before = m.start().checked_sub(1).map(|i| b[i]);
-            let after = b.get(m.end()).copied();
-            !before.is_some_and(|c| c.is_ascii_alphanumeric() || b"_-.$#".contains(&c))
-                && !after.is_some_and(|c| c.is_ascii_alphanumeric() || b"_-.".contains(&c))
-                && !is_zero(m.as_str())
-        })
+        .filter(|m| standalone(value.as_bytes(), m, b"_-.") && !is_zero(m.as_str()))
         .map(|m| (m.start(), m.as_str().to_owned()))
         .collect()
+}
+
+/// Whether a number match stands alone rather than inside a name: nothing before it
+/// is an identifier character, `-`, `.`, `$`, or `#`, and nothing after it is
+/// alphanumeric or one of `after`.
+fn standalone(b: &[u8], m: &regex::Match, after: &[u8]) -> bool {
+    let before = m.start().checked_sub(1).map(|i| b[i]);
+    let next = b.get(m.end()).copied();
+    !before.is_some_and(|c| c.is_ascii_alphanumeric() || b"_-.$#".contains(&c))
+        && !next.is_some_and(|c| c.is_ascii_alphanumeric() || after.contains(&c))
 }
 
 /// Whether the numeric part of a literal is zero, so `0`, `0px`, and `-0.0rem` pass.
@@ -306,8 +306,9 @@ fn tailwind_values(text: &str, rule: &str) -> Vec<(usize, String, Vec<String>)> 
     out
 }
 
-/// Class-like words split at whitespace, quotes, parentheses, braces, and commas
-/// (not inside brackets), with variants, `!`, and a leading `-` removed.
+/// Class-like words split at whitespace, and at quotes, parentheses, braces, and
+/// commas outside brackets, with a trailing `:` (an object key), variants, `!`, and a
+/// leading `-` removed.
 fn class_names(text: &str) -> Vec<(usize, &str)> {
     let mut out = vec![];
     let mut start = 0;
@@ -322,12 +323,13 @@ fn class_names(text: &str) -> Vec<(usize, &str)> {
         }
         let split = match c {
             None => true,
-            Some(c) => depth == 0 && (c.is_ascii_whitespace() || b"\"'`(){},".contains(&c)),
+            Some(c) => c.is_ascii_whitespace() || (depth == 0 && b"\"'`(){},".contains(&c)),
         };
         if !split {
             continue;
         }
         let word = &text[start..i];
+        let word = word.strip_suffix(':').unwrap_or(word);
         let mut variant_end = 0;
         let mut d = 0usize;
         for (j, c) in word.bytes().enumerate() {
@@ -432,15 +434,9 @@ fn top_level(text: &str, from: usize, to: usize) -> String {
 /// Unitless number literals among the top-level tokens of `text[from..to]`.
 fn dart_numbers(text: &str, from: usize, to: usize) -> Vec<(usize, String)> {
     let masked = top_level(text, from, to);
-    let b = masked.as_bytes();
     NUMBER
         .find_iter(&masked)
-        .filter(|m| {
-            let before = m.start().checked_sub(1).map(|i| b[i]);
-            let after = b.get(m.end()).copied();
-            !before.is_some_and(|c| c.is_ascii_alphanumeric() || b"_-.$#".contains(&c))
-                && !after.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_')
-        })
+        .filter(|m| standalone(masked.as_bytes(), m, b"_"))
         .map(|m| (from + m.start(), m.as_str().to_owned()))
         .collect()
 }

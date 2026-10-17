@@ -6,7 +6,7 @@ use crate::{
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use regex::Regex;
 use std::path::Path;
-fn globs(items: &[String]) -> Result<GlobSet, String> {
+pub(crate) fn globs(items: &[String]) -> Result<GlobSet, String> {
     let mut b = GlobSetBuilder::new();
     for s in items {
         b.add(Glob::new(s).map_err(|e| e.to_string())?);
@@ -181,8 +181,17 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
                 "exception.unused",
                 &e.path,
                 &format!(
-                    "exception count mismatch for {}: expected {}, found {}; {}",
-                    e.literal, e.count, used[i], e.reason
+                    "exception count mismatch for {}{}: expected {}, found {}; {}",
+                    // Color messages keep their original wording.
+                    if e.rule == "source.color-literal" {
+                        String::new()
+                    } else {
+                        format!("{} ", e.rule)
+                    },
+                    e.literal,
+                    e.count,
+                    used[i],
+                    e.reason
                 ),
             ))
         }
