@@ -329,7 +329,8 @@ their rule IDs, so `[[exceptions]]` and the baseline work as for any other
 finding.
 
 An override needs its rule's table: `[[rules.radius.overrides]]` with neither a
-`[rules.radius]` header nor another `rules.radius` key is `config.invalid`,
+`[rules.radius]` header, an inline `radius = { ... }` table under `[rules]`, nor
+another `rules.radius` key is `config.invalid`,
 because the rule would otherwise turn on for every file. Empty `paths`, a path
 with `..` or a leading `/`, an invalid glob, and an unknown key are `config.invalid`
 too. An override that applies to no scanned file, because its `paths` match none or
