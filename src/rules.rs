@@ -6,6 +6,7 @@ use globset::GlobSet;
 use regex::Regex;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ops::Range,
     sync::LazyLock,
 };
 
@@ -201,12 +202,16 @@ impl Rules {
         let words = if dart || self.active.iter().all(|a| a.classes.is_none()) {
             vec![]
         } else if stylesheet {
-            apply_classes(text, extension == Some("sass"))
+            apply_classes(text, extension == Some("sass")).0
         } else {
-            // `@apply` words come first: the plain split keeps the `;` ending the
-            // last one, and `seen` drops the later word at the same offset.
-            let mut words = apply_classes(text, true);
-            words.extend(class_names(text));
+            // Words inside an `@apply` come from it alone, so its `;`, `!important`,
+            // and the `@apply` keyword never reach the plain split.
+            let (mut words, spans) = apply_classes(text, false);
+            words.extend(
+                class_names(text)
+                    .into_iter()
+                    .filter(|(o, _)| !spans.iter().any(|s| s.contains(o))),
+            );
             words
         };
         let mut push = |rule: &'static str, offset: usize, literal: &str| {
@@ -331,22 +336,36 @@ fn tailwind_values(text: &str, rule: &str) -> Vec<(usize, String, Vec<String>)> 
 static APPLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)(?:^|[\s;{])@apply\s").unwrap());
 
 /// Class names in the arguments of each `@apply`, which end at `;`, `}`, or, when
-/// `line_ends` is set, a line break. `!important` is not a class.
-fn apply_classes(text: &str, line_ends: bool) -> Vec<(usize, &str)> {
+/// `line_ends` is set, a line break outside brackets, with the byte range of each
+/// `@apply` and its arguments. `!important` is not a class.
+#[allow(clippy::type_complexity)]
+fn apply_classes(text: &str, line_ends: bool) -> (Vec<(usize, &str)>, Vec<Range<usize>>) {
+    let b = text.as_bytes();
     let mut out = vec![];
+    let mut spans = vec![];
     for m in APPLY.find_iter(text) {
         let from = m.end();
-        let len = text[from..]
-            .find(|c| c == ';' || c == '}' || (line_ends && c == '\n'))
-            .unwrap_or(text.len() - from);
-        for (offset, class) in class_names(&text[from..from + len]) {
+        let mut to = from;
+        let mut depth = 0usize;
+        while to < b.len() {
+            match b[to] {
+                b'[' => depth += 1,
+                b']' => depth = depth.saturating_sub(1),
+                b';' | b'}' if depth == 0 => break,
+                b'\n' if line_ends && depth == 0 => break,
+                _ => (),
+            }
+            to += 1;
+        }
+        spans.push(m.start()..to + 1);
+        for (offset, class) in class_names(&text[from..to]) {
             let offset = from + offset;
             if !(class == "important" && text[..offset].ends_with('!')) {
                 out.push((offset, class));
             }
         }
     }
-    out
+    (out, spans)
 }
 
 /// Class-like words split at whitespace, and at quotes, parentheses, braces, and

@@ -434,9 +434,20 @@ fn apply_classes_in_stylesheets() {
         "<template><b class=\"border\" /></template>\n",
         "<style>\n",
         ".a { @apply p-4 rounded-lg; border: 1px solid; }\n",
+        ".b {\n  @apply rounded-md\n    p-2;\n}\n",
         "</style>\n",
     );
     let border = "[rules.border-width]\nclasses = [\"border\", \"border-*\"]\n";
+    // An allowed class in `@apply` stays allowed, and `!important` and a bracketed
+    // `;` neither count nor end the arguments.
+    assert_eq!(
+        findings(
+            "a.vue",
+            "<style>\n.a { @apply p-4 bg-[url('a;b')] rounded-lg; }\n.b { @apply p-2 !important }\n</style>\n",
+            "[rules.radius]\nclasses = [\"rounded-*\"]\nallow = [\"rounded-lg\"]\n[rules.spacing]\nclasses = [\"p-*\", \"bg-*\", \"important*\", \"@apply\"]\nallow = [\"bg-[url('a;b')]\"]\n"
+        ),
+        vec![f("spacing", 2, "p-4"), f("spacing", 3, "p-2")]
+    );
     assert_eq!(
         findings("a.vue", vue, &format!("{rules}{border}")),
         vec![
@@ -444,6 +455,8 @@ fn apply_classes_in_stylesheets() {
             f("spacing", 3, "p-4"),
             f("radius", 3, "rounded-lg"),
             f("border-width", 3, "1px"),
+            f("radius", 5, "rounded-md"),
+            f("spacing", 6, "p-2"),
         ]
     );
 }

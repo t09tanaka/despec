@@ -223,19 +223,19 @@ lists the class or every such number. `text-[...]` holding a color (`#fff`,
 `rgb(...)`) or a non-`length` type hint is not a font size. In Dart, unitless
 number literals at the top level of the listed arguments are reported, so names
 such as `ds.space4` and nested calls such as `gap(4)` are not. `classes` applies to
-files other than CSS, Sass, Less, and Dart: words split at whitespace, quotes,
+files other than CSS, SCSS, Sass, Less, and Dart: words split at whitespace, quotes,
 parentheses, braces, and commas, with variants, `!`, and `-` removed, are matched
 against the globs, and `literal` is the class name. A word ending in `:` is an
 object key, a type field, or a CSS property, never a class, so
 `{ border: '1px solid' }` and `border: 1px` in a `<style>` block do not match
 `border`; write keys that hold class names in quotes (`{ 'rounded-lg': on }`).
+In CSS, SCSS, Sass, and Less files only the arguments of `@apply` are matched, and
+other declarations are not. They end at `;` or `}` outside brackets, and also at a
+line break in indented `.sass`, and `!important` is not a class. `@apply` in a `<style>` block
+counts the same way, without the `;` that ends it. An arbitrary value such as
+`@apply p-[12px]` that both checks find under the same rule is reported once.
 This is a breaking change in 0.6.0: earlier versions removed the trailing `:` and
 counted an unquoted key such as `{ rounded: on }`.
-The arguments of `@apply` are matched too, in CSS, SCSS, Less, and Sass files and
-in `<style>` blocks: they end at `;` or `}`, and also at a line break in indented
-`.sass` and outside stylesheets, and `!important` is not a class. Other CSS
-declarations are not matched against class names. An arbitrary value such as
-`@apply p-[12px]` that both checks find under the same rule is reported once.
 
 Not detected: camelCase style objects in JavaScript (`marginTop: 8`, `padding:
 "8px"`), `line-height` and `letter-spacing`, custom property and Sass variable
