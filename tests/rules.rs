@@ -297,7 +297,7 @@ fn forbidden_classes() {
         ),
         vec![f("radius", 2, "rounded")]
     );
-    // Stylesheets and Dart are never matched against class names.
+    // Outside `@apply`, stylesheets are never matched against class names.
     assert_eq!(
         findings("a.css", ".rounded { padding: var(--x); }\n", rules),
         vec![]
@@ -452,7 +452,7 @@ fn apply_classes_in_stylesheets() {
 fn words_ending_in_a_colon_are_not_classes() {
     let rules = "[rules.border-width]\nclasses = [\"border\", \"border-*\"]\n[rules.outline]\nclasses = [\"ring\"]\n";
     let tsx = concat!(
-        "const theme = { border: 'var(--ds-border)', ring: on };\n",
+        "const look = { border: '1px solid', ring: true };\n",
         "type Box = { border: number };\n",
         "const flags = { 'border-2': on };\n",
         "<b className=\"border ring\" />\n",

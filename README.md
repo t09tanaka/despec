@@ -227,7 +227,7 @@ files other than CSS, Sass, Less, and Dart: words split at whitespace, quotes,
 parentheses, braces, and commas, with variants, `!`, and `-` removed, are matched
 against the globs, and `literal` is the class name. A word ending in `:` is an
 object key, a type field, or a CSS property, never a class, so
-`{ border: 'var(--x)' }` and `border: 1px` in a `<style>` block do not match
+`{ border: '1px solid' }` and `border: 1px` in a `<style>` block do not match
 `border`; write keys that hold class names in quotes (`{ 'rounded-lg': on }`).
 This is a breaking change in 0.6.0: earlier versions removed the trailing `:` and
 counted an unquoted key such as `{ rounded: on }`.
