@@ -114,6 +114,7 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
         }
     }
     let rules = Rules::new(&c.rules)?;
+    let mut chosen = std::collections::BTreeSet::new();
     let mut ds = vec![];
     let mut used = vec![0usize; c.exceptions.len()];
     let mut count = 0;
@@ -134,6 +135,22 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
             let line = raw.strip_suffix('\n').unwrap_or(raw);
             let line = line.strip_suffix('\r').unwrap_or(line);
             for m in re.find_iter(line) {
+                // A `#` directly after a word, `/`, or `&` is a URL fragment, an issue
+                // reference such as `issue/#271`, or an HTML entity. `?` and `=` are
+                // not checked, so `a?#fff:#000` and `fill=#fff` still count. Inside a
+                // Tailwind arbitrary value `_` stands for a space, as in
+                // `shadow-[0_1px_#000]`, so a `_` there still precedes a color. `None`
+                // sorts before `Some`, so a line without `[` is outside any value.
+                let before = &line[..m.start()];
+                if m.as_str().starts_with('#')
+                    && before.bytes().last().is_some_and(|c| {
+                        c.is_ascii_alphanumeric()
+                            || b"/&".contains(&c)
+                            || (c == b'_' && before.rfind('[') <= before.rfind(']'))
+                    })
+                {
+                    continue;
+                }
                 // A standalone ID selector is unambiguous; complex selectors still
                 // need a language parser and are documented as a lexical limitation.
                 if matches!(extension, Some("css" | "scss" | "vue"))
@@ -151,7 +168,9 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
             }
             offset += raw.len();
         }
-        findings.extend(rules.find(&text, extension));
+        let selection = rules.select(&p);
+        chosen.extend(selection.overrides.iter().copied());
+        findings.extend(selection.find(&text, extension));
         // Stable, so same-offset findings keep detection order.
         findings.sort_by_key(|f| f.offset);
         let path = p.to_string_lossy();
@@ -209,6 +228,20 @@ pub fn scan(root: &Path, c: &Config) -> Result<(usize, Vec<Diagnostic>), String>
                     e.reason
                 ),
             ))
+        }
+    }
+    for (id, rule) in &c.rules {
+        for (i, o) in rule.overrides.iter().enumerate() {
+            if !chosen.iter().any(|&(r, n)| r == id && n == i) {
+                ds.push(Diagnostic::new(
+                    "override.unused",
+                    ".despec.toml",
+                    &format!(
+                        "rules.{id}.overrides[{i}] applies to no scanned file; paths {:?} match none, or only files an earlier override takes",
+                        o.paths
+                    ),
+                ))
+            }
         }
     }
     Ok((count, ds))

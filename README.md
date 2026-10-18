@@ -13,7 +13,7 @@ TOML configuration; all paths resolve relative to its directory.
 
 ```toml
 schema_version = 1
-required_version = "0.5.0"
+required_version = "0.6.0"
 
 [outputs]
 css = "generated/tokens.css"            # one destination
@@ -113,15 +113,23 @@ Exit status is 0 for success, 1 for findings/configuration/I/O failures, and 2
 for invalid CLI syntax. Rule IDs are `config.invalid`, `token.invalid`,
 `generated.stale`, `source.color-literal`, `source.<rule>-literal` for each
 dimension rule below, `source.no-files`,
-`source.scan-error`, `exception.unused`, `baseline.increase`, `baseline.stale`,
+`source.scan-error`, `exception.unused`, `override.unused`, `baseline.increase`, `baseline.stale`,
 `baseline.invalid`, `cli.invalid`, and `io.error`.
 
 Source policies are deliberately lexical, not an AST analyzer. They detect
-hex colors, numeric rgb/rgba/hsl/hsla functions, and Dart Color(0xAARRGGBB).
+hex colors, numeric rgb/rgba/hsl/hsla functions, and Dart Color(0xAARRGGBB),
+and CSS named colors such as `black` when `[rules.color]` sets `keywords = true`
+(see [Named colors](#named-colors)).
 C-style, line, and HTML comments are ignored; quoted strings are scanned.
 Standalone CSS ID selectors such as `#abcdef {` are ignored; complex selectors
-can still produce false positives. Numeric color expressions
-split over lines, language interpolation, aliases, named colors, and computed
+can still produce false positives. A `#` directly after a letter, digit, `_`,
+`/`, or `&` is not a color, so `issue/#271`, `page#abc`, and `&#123;` are
+skipped; inside a Tailwind arbitrary value such as `shadow-[0_1px_#000]` the `_`
+stands for a space and the color still counts. A `#` after `?` or `=` is still a
+color, so `isDark?#fff:#000` and `fill=#fff` are reported, and so is a query
+string such as `?x=#fff`. This is a breaking change in 0.6.0: earlier versions
+reported the skipped forms. Numeric color expressions
+split over lines, language interpolation, aliases, and computed
 colors are not fully analyzed. Keep existing language-specific AST guards.
 Configure a meaningful explicit scope; generated files are skipped. Each include is walked from its fixed directory prefix to avoid traversing unrelated trees. Symlinks
 are not followed. `.git`, `node_modules`, and `target` trees are excluded.
@@ -145,18 +153,20 @@ into the baseline.
 {
   "schema_version": 1,
   "entries": [
-    {
-      "rule": "source.spacing-literal",
-      "path": "src/card.css",
-      "literal": "12px",
-      "count": 3
-    }
+    {"rule": "source.radius-literal", "path": "src/card.css", "literal": "4px", "count": 1},
+    {"rule": "source.spacing-literal", "path": "src/card.css", "literal": "12px", "count": 3}
   ]
 }
 ```
 
-Entries are sorted by rule, path, and literal, each count is at least 1, and the
-file ends with a newline. Line numbers are not recorded, so moving code within a
+`despec baseline` writes one entry per line, with the keys in the order `rule`,
+`path`, `literal`, `count`, so a large baseline stays small and pull requests
+that lower different entries rarely conflict. An empty baseline is
+`"entries": []`. Entries are sorted by rule, path, and literal, each count is at
+least 1, and the file ends with a newline. The file is read as ordinary JSON, so
+the multi-line layout written before 0.6.0 (one key per line) is still accepted;
+`despec baseline` converts it whenever it rewrites the file, for example after a
+count drops, and leaves an unchanged file in either layout as it is. Line numbers are not recorded, so moving code within a
 file does not invalidate the file. Paths are recorded, so renaming a file with
 recorded entries reports them as new; review that only the rename changed, then
 delete the baseline and run `despec baseline` again.
@@ -189,7 +199,8 @@ Their findings use rule IDs such as `source.spacing-literal` and work with
 an exception for a dimension rule requires that rule's table. A
 table accepts only `allow`, values to accept compared as written but
 case-insensitively (`"16"` does not cover `"16.0"`), and `classes`, class-name
-globs to forbid. `[rules.color]` accepts only `classes`. Zero is always accepted,
+globs to forbid, and `overrides` (see [Per-path overrides](#per-path-overrides)).
+`[rules.color]` accepts only `classes`, `keywords`, and `overrides`. Zero is always accepted,
 with or without a unit. Unknown rule IDs and keys are configuration errors.
 
 Detected forms, after comments are removed:
@@ -221,10 +232,19 @@ lists the class or every such number. `text-[...]` holding a color (`#fff`,
 `rgb(...)`) or a non-`length` type hint is not a font size. In Dart, unitless
 number literals at the top level of the listed arguments are reported, so names
 such as `ds.space4` and nested calls such as `gap(4)` are not. `classes` applies to
-files other than CSS, Sass, Less, and Dart: words split at whitespace, quotes,
-parentheses, braces, and commas, with a trailing `:` (as in `{ rounded: on }`),
-variants, `!`, and `-` removed, are matched
-against the globs, and `literal` is the class name.
+files other than CSS, SCSS, Sass, Less, and Dart: words split at whitespace, quotes,
+parentheses, braces, and commas, with variants, `!`, and `-` removed, are matched
+against the globs, and `literal` is the class name. A word ending in `:` is an
+object key, a type field, or a CSS property, never a class, so
+`{ border: '1px solid' }` and `border: 1px` in a `<style>` block do not match
+`border`; write keys that hold class names in quotes (`{ 'rounded-lg': on }`).
+In CSS, SCSS, Sass, and Less files only the arguments of `@apply` are matched, and
+other declarations are not. They end at `;` or `}` outside brackets, and also at a
+line break in indented `.sass`, and `!important` is not a class. `@apply` in a `<style>` block
+counts the same way, without the `;` that ends it. An arbitrary value such as
+`@apply p-[12px]` that both checks find under the same rule is reported once.
+This is a breaking change in 0.6.0: earlier versions removed the trailing `:` and
+counted an unquoted key such as `{ rounded: on }`.
 
 Not detected: camelCase style objects in JavaScript (`marginTop: 8`, `padding:
 "8px"`), `line-height` and `letter-spacing`, custom property and Sass variable
@@ -232,6 +252,111 @@ definitions (`--card-padding: 12px`, `$gap: 12px`), media queries and other
 properties such as `width`, and values assembled at run time or through
 interpolation. Unrelated text can still match lexically, such as a word in prose that
 equals a forbidden class name.
+
+### Named colors
+
+`[rules.color]` with `keywords = true` (default `false`) also reports the 148
+named colors of CSS Color Module Level 4, compared case-insensitively, as
+`source.color-literal` with the word as written (`White`). They are found in
+three forms, after comments are removed:
+
+- Words in the value of a CSS declaration in CSS, SCSS, Sass, Less, and in style
+  attributes, `<style>` blocks, and strings in other files, for the properties
+  `color` and every `*-color` longhand (`background-color`, `border-top-color`,
+  `outline-color`, `text-decoration-color`, `caret-color`, `accent-color`,
+  `column-rule-color`, `stop-color`, `-webkit-text-fill-color`, …), `background`, `border`
+  and its side and logical longhands, `outline`, `box-shadow`, `text-shadow`,
+  `fill`, `stroke`, `column-rule`, `text-decoration`, and `text-emphasis`. The
+  property must start a line or follow whitespace, `;`, `{`, or a quote, and the
+  value ends as for the dimension rules: at `;`, `}`, or a nested `{` in CSS,
+  SCSS, and Less files, and also at a line break or a quote elsewhere.
+- In files other than stylesheets and Dart, a `fill`, `stroke`, `color`, or
+  `stop-color` attribute after whitespace whose quoted value is a single named
+  color, such as `<rect fill="black">`. Bound attributes such as Vue `:fill="black"`
+  are expressions and skipped.
+- A Tailwind arbitrary value holding only a named color, optionally with the
+  `color:` hint, for `bg`, `text`, `border` and its sides, `outline`, `ring`,
+  `ring-offset`, `divide`, `decoration`, `placeholder`, `caret`, `accent`, `fill`,
+  `stroke`, `shadow`, `from`, `via`, and `to`; `literal` is the class without
+  variants, such as `bg-[white]` for `md:bg-[white]`.
+
+`transparent`, `currentColor`, `inherit`, `initial`, `unset`, `revert`, and
+`none` are not named colors. A word that is part of a longer name or follows
+`$`, `.`, `#`, `@`, `%`, `/`, or `\`, or that precedes `.` or `(`, is not
+counted, so `var(--ds-white)`, `$white`, `url(white.png)`, and `Colors.white` pass.
+Selectors such as `.text-white` and Tailwind class names such as `text-white`
+are not declarations; forbid such classes with `classes`. Sass variable and
+custom property definitions are not checked, as for the dimension rules, and
+neither are camelCase style objects or quoted values in JavaScript objects
+(`{ color: "red" }`, `{ backgroundColor: 'red' }`). Dart
+files are not checked for named colors. The words are matched lexically, so an
+unquoted value in a JavaScript object such as `{ color: white }` is reported even
+when `white` is a variable, and so are an assignment such as `color = "red"` and
+prose that reads like a declaration.
+
+Named colors share the rule ID of the other colors, so `[[exceptions]]` with
+`rule = "source.color-literal"` and `literal = "black"` accepts one, and
+`despec baseline` records them beside hex colors. Turning `keywords` on in a
+project with a baseline reports the new findings as growth until `despec
+baseline` is run again; delete the baseline first, because new entries are
+never added to an existing one.
+
+### Per-path overrides
+
+One configuration may check several applications whose conventions differ: one
+binds Tailwind's `rounded-lg` to a token and accepts it, another writes it by
+hand. `[[rules.<id>.overrides]]` changes a rule's settings for some files:
+
+```toml
+[rules.radius]
+classes = ["rounded", "rounded-{sm,md,lg,xl,2xl,3xl,full}"]
+
+[[rules.radius.overrides]]
+paths = ["apps/admin/**"]
+classes = ["rounded-{xl,2xl,3xl,full}"]
+```
+
+`paths` is required: a nonempty list of globs relative to the configuration
+directory, written and matched like `[sources] include`. An override may also set
+`allow` and `classes`, and under `[rules.color]` `classes` and `keywords`. Each key
+it sets replaces the rule's value for the matched files; lists are not merged,
+and `classes = []` stops matching class names there. A key it leaves out keeps the
+value from the rule's table. When several overrides of one rule match a file, the
+first one in the configuration applies and the rest are ignored for that file; a
+file that no override matches uses the table. Each rule is resolved separately, so
+an override of `[rules.radius]` does not change `[rules.spacing]`. Findings keep
+their rule IDs, so `[[exceptions]]` and the baseline work as for any other
+finding.
+
+An override needs its rule's table: `[[rules.radius.overrides]]` with neither a
+`[rules.radius]` header, an inline `radius = { ... }` table under `[rules]`, nor
+another `rules.radius` key is `config.invalid`,
+because the rule would otherwise turn on for every file. Empty `paths`, a path
+with `..` or a leading `/`, an invalid glob, and an unknown key are `config.invalid`
+too. An override that applies to no scanned file, because its `paths` match none or
+only files an earlier override already takes, is reported after the scan as
+`override.unused` at `.despec.toml`, like `exception.unused`; while it remains,
+`despec baseline` writes nothing.
+
+### Breaking changes in 0.6.0
+
+Three detection changes alter the counts of an existing project:
+
+1. A `#` directly after a letter, digit, `_`, `/`, or `&` is no longer a color
+   (see the source policies above), so fewer colors are reported.
+2. A word ending in `:` is no longer a class, so an unquoted key such as
+   `{ rounded: on }` no longer matches `classes`, and fewer classes are reported.
+3. `classes` now matches the arguments of `@apply`: in CSS, Sass, and Less files,
+   where it matched nothing before, and in markup and other files, where
+   `@apply rounded-lg;` now matches `rounded-lg`, so more classes are reported.
+   SCSS files, which were split into words like markup before, now match only
+   `@apply` arguments too.
+
+In a project with a baseline, run `despec baseline` after upgrading: lowered
+counts make `despec check` fail with `baseline.stale` until the baseline is
+lowered. New findings, which the third change can add, are never taken into an
+existing baseline, so when there are any, delete the baseline and run
+`despec baseline` again to record it from scratch.
 
 ## Development and releases
 

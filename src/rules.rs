@@ -6,6 +6,7 @@ use globset::GlobSet;
 use regex::Regex;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    ops::Range,
     sync::LazyLock,
 };
 
@@ -64,21 +65,25 @@ const TAILWIND_PREFIXES: [(&str, &str); 7] = [
 
 /// Declarations in markup and scripts: the value ends at `;`, `}`, a line break, or a
 /// quote, because it usually sits inside an attribute or a string.
+const MARKUP_VALUE: &str = r#"[^;}\n"'`]*"#;
 static CSS_DECLARATIONS: LazyLock<Vec<(&'static str, Regex)>> =
-    LazyLock::new(|| declarations(r#"[^;}\n"'`]*"#));
+    LazyLock::new(|| declarations(MARKUP_VALUE));
 /// Declarations in stylesheets: the value may wrap over lines, as formatters write
 /// long shadows and shorthands, and ends at `;`, `}`, or a `{` opening a nested rule.
+const STYLESHEET_VALUE: &str = r"[^;{}]*";
 static STYLESHEET_DECLARATIONS: LazyLock<Vec<(&'static str, Regex)>> =
-    LazyLock::new(|| declarations(r"[^;{}]*"));
+    LazyLock::new(|| declarations(STYLESHEET_VALUE));
 
 fn declarations(value: &str) -> Vec<(&'static str, Regex)> {
     CSS_PROPERTIES
         .iter()
-        .map(|(rule, props)| {
-            let pattern = format!(r#"(?im)(?:^|[\s;{{"'`])(?:{props})\s*:({value})"#);
-            (*rule, Regex::new(&pattern).unwrap())
-        })
+        .map(|(rule, props)| (*rule, declaration(props, value)))
         .collect()
+}
+
+/// A declaration of one of `props` whose value, matching `value`, is group 1.
+fn declaration(props: &str, value: &str) -> Regex {
+    Regex::new(&format!(r#"(?im)(?:^|[\s;{{"'`])(?:{props})\s*:({value})"#)).unwrap()
 }
 static TAILWIND: LazyLock<Vec<(&'static str, Regex)>> = LazyLock::new(|| {
     TAILWIND_PREFIXES
@@ -153,15 +158,48 @@ static DART_BOX_SHADOW: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\bBoxShadow\s*\(").unwrap());
 static DART_OFFSET: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bOffset\s*\(").unwrap());
 
-struct Active {
-    rule: &'static str,
+/// The `allow`, `classes`, and `keywords` in effect for a rule, from its table or
+/// from one of its overrides.
+struct Values {
     allow: BTreeSet<String>,
     classes: Option<GlobSet>,
+    keywords: bool,
+}
+
+impl Values {
+    fn new(allow: Option<&[String]>, classes: &[String], keywords: bool) -> Result<Self, String> {
+        Ok(Self {
+            allow: allow
+                .into_iter()
+                .flatten()
+                .map(|v| v.to_lowercase())
+                .collect(),
+            classes: if classes.is_empty() {
+                None
+            } else {
+                Some(crate::scan::globs(classes)?)
+            },
+            keywords,
+        })
+    }
+}
+
+struct Active {
+    rule: &'static str,
+    values: Values,
+    overrides: Vec<(GlobSet, Values)>,
 }
 
 /// Compiled `[rules.*]` settings, built once per scan.
 pub struct Rules {
     active: Vec<Active>,
+}
+
+/// The rules as they apply to one file.
+pub struct Selection<'a> {
+    active: Vec<(&'static str, &'a Values)>,
+    /// (rule, index) of each override chosen for the file.
+    pub overrides: Vec<(&'static str, usize)>,
 }
 
 impl Rules {
@@ -173,35 +211,71 @@ impl Rules {
                 .chain(DIMENSION_RULES)
                 .find(|r| r == id)
                 .ok_or_else(|| format!("unknown rule {id}"))?;
-            let classes = if rule.classes.is_empty() {
-                None
-            } else {
-                Some(crate::scan::globs(&rule.classes)?)
-            };
+            let mut overrides = vec![];
+            for o in &rule.overrides {
+                // A key the override leaves out keeps the table's value.
+                let values = Values::new(
+                    o.allow.as_deref().or(rule.allow.as_deref()),
+                    o.classes.as_deref().unwrap_or(&rule.classes),
+                    o.keywords.unwrap_or(rule.keywords),
+                )?;
+                overrides.push((crate::scan::globs(&o.paths)?, values));
+            }
             active.push(Active {
                 rule: rule_id,
-                allow: rule
-                    .allow
-                    .iter()
-                    .flatten()
-                    .map(|v| v.to_lowercase())
-                    .collect(),
-                classes,
+                values: Values::new(rule.allow.as_deref(), &rule.classes, rule.keywords)?,
+                overrides,
             });
         }
         Ok(Self { active })
     }
 
+    /// Resolves each rule for `path`, relative to the configuration directory: the
+    /// first override whose `paths` match it, otherwise the rule's table.
+    pub fn select(&self, path: &std::path::Path) -> Selection<'_> {
+        let mut selection = Selection {
+            active: vec![],
+            overrides: vec![],
+        };
+        for a in &self.active {
+            let values = match a
+                .overrides
+                .iter()
+                .position(|(paths, _)| paths.is_match(path))
+            {
+                Some(i) => {
+                    selection.overrides.push((a.rule, i));
+                    &a.overrides[i].1
+                }
+                None => &a.values,
+            };
+            selection.active.push((a.rule, values));
+        }
+        selection
+    }
+}
+
+impl Selection<'_> {
     /// Findings in `text`, in no particular order; the caller sorts by offset.
     pub fn find(&self, text: &str, extension: Option<&str>) -> Vec<Finding> {
         let dart = extension == Some("dart");
         let stylesheet = matches!(extension, Some("css" | "scss" | "sass" | "less"));
         let mut out = vec![];
         let mut seen = BTreeSet::new();
-        let words = if dart || stylesheet || self.active.iter().all(|a| a.classes.is_none()) {
+        let words = if dart || self.active.iter().all(|(_, v)| v.classes.is_none()) {
             vec![]
+        } else if stylesheet {
+            apply_classes(text, extension == Some("sass")).0
         } else {
-            class_names(text)
+            // Words inside an `@apply` come from it alone, so its `;`, `!important`,
+            // and the `@apply` keyword never reach the plain split.
+            let (mut words, spans) = apply_classes(text, false);
+            words.extend(
+                class_names(text)
+                    .into_iter()
+                    .filter(|(o, _)| !spans.iter().any(|s| s.contains(o))),
+            );
+            words
         };
         let mut push = |rule: &'static str, offset: usize, literal: &str| {
             if seen.insert((rule, offset)) {
@@ -212,26 +286,31 @@ impl Rules {
                 });
             }
         };
-        for a in &self.active {
+        // Indented Sass ends declarations at line breaks.
+        let wraps = stylesheet && extension != Some("sass");
+        for &(rule, a) in &self.active {
             let allowed = |literal: &str| a.allow.contains(&literal.to_lowercase());
-            if a.rule != "color" {
+            if a.keywords && !dart {
+                for (offset, literal) in keyword_colors(text, stylesheet, wraps) {
+                    push(rule, offset, &literal);
+                }
+            }
+            if rule != "color" {
                 if dart {
-                    for (offset, literal) in dart_values(text, a.rule) {
+                    for (offset, literal) in dart_values(text, rule) {
                         if !is_zero(&literal) && !allowed(&literal) {
-                            push(a.rule, offset, &literal);
+                            push(rule, offset, &literal);
                         }
                     }
                 } else {
-                    // Indented Sass ends declarations at line breaks.
-                    let wraps = stylesheet && extension != Some("sass");
-                    for (offset, literal) in css_values(text, a.rule, wraps) {
+                    for (offset, literal) in css_values(text, rule, wraps) {
                         if !allowed(&literal) {
-                            push(a.rule, offset, &literal);
+                            push(rule, offset, &literal);
                         }
                     }
-                    for (offset, literal, values) in tailwind_values(text, a.rule) {
+                    for (offset, literal, values) in tailwind_values(text, rule) {
                         if !allowed(&literal) && !values.iter().all(|v| allowed(v)) {
-                            push(a.rule, offset, &literal);
+                            push(rule, offset, &literal);
                         }
                     }
                 }
@@ -239,7 +318,7 @@ impl Rules {
             if let Some(classes) = &a.classes {
                 for &(offset, class) in &words {
                     if classes.is_match(class) && !allowed(class) {
-                        push(a.rule, offset, class);
+                        push(rule, offset, class);
                     }
                 }
             }
@@ -322,9 +401,150 @@ fn tailwind_values(text: &str, rule: &str) -> Vec<(usize, String, Vec<String>)> 
     out
 }
 
+/// The 148 named colors of CSS Color Module Level 4, lowercase. `transparent` and
+/// `currentColor` are not among them.
+#[rustfmt::skip]
+const NAMED_COLORS: [&str; 148] = [
+    "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
+    "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
+    "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue",
+    "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki",
+    "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon",
+    "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise",
+    "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue",
+    "firebrick", "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold",
+    "goldenrod", "gray", "green", "greenyellow", "grey", "honeydew", "hotpink", "indianred",
+    "indigo", "ivory", "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon",
+    "lightblue", "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray",
+    "lightgreen", "lightgrey", "lightpink", "lightsalmon", "lightseagreen", "lightskyblue",
+    "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow", "lime",
+    "limegreen", "linen", "magenta", "maroon", "mediumaquamarine", "mediumblue",
+    "mediumorchid", "mediumpurple", "mediumseagreen", "mediumslateblue",
+    "mediumspringgreen", "mediumturquoise", "mediumvioletred", "midnightblue", "mintcream",
+    "mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab",
+    "orange", "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise",
+    "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue",
+    "purple", "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon",
+    "sandybrown", "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue",
+    "slategray", "slategrey", "snow", "springgreen", "steelblue", "tan", "teal", "thistle",
+    "tomato", "turquoise", "violet", "wheat", "white", "whitesmoke", "yellow",
+    "yellowgreen",
+];
+
+fn named_color(word: &str) -> bool {
+    NAMED_COLORS.contains(&word.to_ascii_lowercase().as_str())
+}
+
+/// CSS properties whose value may hold a color: every `*-color` longhand, vendor
+/// prefixed or not, and the shorthands and properties that take a color among others.
+const COLOR_PROPERTIES: &str = concat!(
+    r"(?:-[a-z]+-)?(?:[a-z]+-)*color|background|border(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?",
+    r"|outline|(?:box|text)-shadow|fill|stroke|column-rule|text-decoration|text-emphasis",
+);
+static COLOR_DECLARATION: LazyLock<Regex> =
+    LazyLock::new(|| declaration(COLOR_PROPERTIES, MARKUP_VALUE));
+static STYLESHEET_COLOR_DECLARATION: LazyLock<Regex> =
+    LazyLock::new(|| declaration(COLOR_PROPERTIES, STYLESHEET_VALUE));
+/// Presentation attributes that take a color, such as SVG `fill="black"`. Group 2 or 3
+/// is the quoted value.
+static COLOR_ATTRIBUTE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)(?:^|\s)(?:fill|stroke|color|stop-color)\s*=\s*(?:"([^"]*)"|'([^']*)')"#)
+        .unwrap()
+});
+/// Tailwind color utilities that take an arbitrary `-[...]` value.
+static TAILWIND_COLOR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(concat!(
+        r#"(?m)(?:^|[\s"'`{:!])((?:bg|text|border(?:-[xytrblse])?|outline|ring-offset|ring|"#,
+        r#"divide|decoration|placeholder|caret|accent|fill|stroke|shadow|from|via|to)"#,
+        r#"-\[([^\]\s"'`]+)\])"#,
+    ))
+    .unwrap()
+});
+static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9_-]+").unwrap());
+
+/// Named colors in CSS declarations, color attributes, and Tailwind arbitrary values,
+/// as (offset, literal). `stylesheet` selects the file kind and `wraps` the
+/// declaration end, as for `css_values`.
+fn keyword_colors(text: &str, stylesheet: bool, wraps: bool) -> Vec<(usize, String)> {
+    let declaration = if wraps {
+        &STYLESHEET_COLOR_DECLARATION
+    } else {
+        &COLOR_DECLARATION
+    };
+    let mut out = vec![];
+    for caps in declaration.captures_iter(text) {
+        let value = caps.get(1).unwrap();
+        let b = value.as_str().as_bytes();
+        for m in WORD.find_iter(value.as_str()) {
+            // A word after `$`, `.`, `#`, `@`, `%`, or `/` is a variable, a member, a
+            // selector, or a path, and one before `.` or `(` is a file name or a call.
+            let before = m.start().checked_sub(1).map(|i| b[i]);
+            let next = b.get(m.end()).copied();
+            if !before.is_some_and(|c| b"$.#@%/\\".contains(&c))
+                && !next.is_some_and(|c| b".(".contains(&c))
+                && named_color(m.as_str())
+            {
+                out.push((value.start() + m.start(), m.as_str().to_owned()));
+            }
+        }
+    }
+    if !stylesheet {
+        for caps in COLOR_ATTRIBUTE.captures_iter(text) {
+            let value = caps.get(1).or_else(|| caps.get(2)).unwrap();
+            let word = value.as_str().trim();
+            if named_color(word) {
+                let offset = value.start() + value.as_str().find(word).unwrap();
+                out.push((offset, word.to_owned()));
+            }
+        }
+    }
+    for caps in TAILWIND_COLOR.captures_iter(text) {
+        let inner = caps.get(2).unwrap().as_str();
+        if named_color(inner.strip_prefix("color:").unwrap_or(inner)) {
+            let class = caps.get(1).unwrap();
+            out.push((class.start(), class.as_str().to_owned()));
+        }
+    }
+    out
+}
+
+static APPLY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?m)(?:^|[\s;{])@apply\s").unwrap());
+
+/// Class names in the arguments of each `@apply`, which end at `;`, `}`, or, when
+/// `line_ends` is set, a line break outside brackets, with the byte range of each
+/// `@apply` and its arguments. `!important` is not a class.
+fn apply_classes(text: &str, line_ends: bool) -> (Vec<(usize, &str)>, Vec<Range<usize>>) {
+    let b = text.as_bytes();
+    let mut out = vec![];
+    let mut spans = vec![];
+    for m in APPLY.find_iter(text) {
+        let from = m.end();
+        let mut to = from;
+        let mut depth = 0usize;
+        while to < b.len() {
+            match b[to] {
+                b'[' => depth += 1,
+                b']' => depth = depth.saturating_sub(1),
+                b';' | b'}' if depth == 0 => break,
+                b'\n' if line_ends && depth == 0 => break,
+                _ => (),
+            }
+            to += 1;
+        }
+        spans.push(m.start()..to + 1);
+        for (offset, class) in class_names(&text[from..to]) {
+            let offset = from + offset;
+            if !(class == "important" && text[..offset].ends_with('!')) {
+                out.push((offset, class));
+            }
+        }
+    }
+    (out, spans)
+}
+
 /// Class-like words split at whitespace, and at quotes, parentheses, braces, and
-/// commas outside brackets, with a trailing `:` (an object key), variants, `!`, and a
-/// leading `-` removed.
+/// commas outside brackets, with variants, `!`, and a leading `-` removed. A word
+/// ending in `:` is an object key or a CSS property, not a class.
 fn class_names(text: &str) -> Vec<(usize, &str)> {
     let mut out = vec![];
     let mut start = 0;
@@ -345,7 +565,12 @@ fn class_names(text: &str) -> Vec<(usize, &str)> {
             continue;
         }
         let word = &text[start..i];
-        let word = word.strip_suffix(':').unwrap_or(word);
+        let begin = start;
+        start = i + 1;
+        depth = 0;
+        if word.ends_with(':') {
+            continue;
+        }
         let mut variant_end = 0;
         let mut d = 0usize;
         for (j, c) in word.bytes().enumerate() {
@@ -356,7 +581,7 @@ fn class_names(text: &str) -> Vec<(usize, &str)> {
                 _ => (),
             }
         }
-        let mut offset = start + variant_end;
+        let mut offset = begin + variant_end;
         let mut class = &word[variant_end..];
         for prefix in ["!", "-"] {
             if let Some(rest) = class.strip_prefix(prefix) {
@@ -368,8 +593,6 @@ fn class_names(text: &str) -> Vec<(usize, &str)> {
         if !class.is_empty() {
             out.push((offset, class));
         }
-        start = i + 1;
-        depth = 0;
     }
     out
 }
